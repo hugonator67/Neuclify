@@ -1,0 +1,3455 @@
+<title>Neuclify</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=VT323&display=swap">
+<style>
+/* Layout: a control-room console. Fixed HUD strip, pixel viewport on the left, operator panel on the right,
+   teleprinter log along the bottom. Single dark theme by design — this is a CRT in a reactor hall. */
+:root{
+  --void:#070a0c; --panel:#10161b; --panel2:#161f26; --bezel:#243039; --bezel2:#364754;
+  --ink:#cfe6dc; --dim:#7d9389; --line:#1e2a32;
+  --green:#5ef08a; --amber:#ffb23a; --red:#ff4b45; --blue:#56b7ff; --cyan:#7cf3ff; --violet:#b07cff;
+  --ui:'Press Start 2P',ui-monospace,monospace; --rd:'VT323',ui-monospace,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--void);color:var(--ink);font-family:var(--rd);font-size:19px;overflow:hidden}
+button{font-family:var(--ui);color:var(--ink);background:var(--panel2);border:2px solid var(--bezel2);
+  border-radius:0;padding:7px 8px;font-size:8px;line-height:1.5;cursor:pointer;letter-spacing:.5px;
+  box-shadow:inset -2px -2px 0 #0006, inset 2px 2px 0 #ffffff14}
+button:hover:not(:disabled){background:#1e2b34;border-color:var(--green)}
+button:active:not(:disabled){box-shadow:inset 2px 2px 0 #0008;transform:translate(1px,1px)}
+button:disabled{opacity:.38;cursor:not-allowed}
+button:focus-visible,input:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--cyan);outline-offset:1px}
+.b-go{border-color:#2e6b45;background:#13281c;color:var(--green)}
+.b-warn{border-color:#6b5420;background:#2a2112;color:var(--amber)}
+.b-bad{border-color:#6b2a28;background:#2a1312;color:var(--red)}
+.wide{width:100%}
+
+#app{height:100%;display:flex;flex-direction:column;min-height:0}
+
+#hud{display:flex;align-items:center;gap:10px;background:linear-gradient(#182229,#0d1318);
+  border-bottom:2px solid var(--bezel);padding-block:6px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  flex:0 0 auto;overflow:hidden}
+.brand{font-family:var(--ui);font-size:13px;color:var(--green);text-shadow:0 0 8px #5ef08a66;letter-spacing:1px;white-space:nowrap}
+.brand b{color:var(--amber)}
+.brand small{display:block;font-size:6px;color:var(--dim);text-shadow:none;letter-spacing:.5px;margin-top:4px;white-space:nowrap}
+.cap{color:var(--dim);font-size:15px;line-height:1.15;margin:-3px 0 7px}
+#stats{display:flex;gap:4px;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
+#stats::-webkit-scrollbar{display:none}
+.st{background:#0b1116;border:1px solid var(--line);padding:1px 7px 2px;min-width:0;white-space:nowrap;flex:0 0 auto}
+.st i{display:block;font-family:var(--ui);font-size:6px;color:var(--dim);font-style:normal;letter-spacing:.5px}
+.st b{font-weight:400;font-size:21px;line-height:1;font-variant-numeric:tabular-nums}
+.hudbtn{display:flex;gap:3px;flex:0 0 auto}
+.hudbtn button{padding:6px 6px;font-size:7px}
+
+#main{flex:1 1 auto;display:flex;min-height:0}
+#stage{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;background:#05080a}
+#canwrap{position:relative;flex:1 1 auto;min-height:0;display:flex;align-items:center;justify-content:center;
+  background:#04070a;overflow:hidden;
+  padding-left:env(safe-area-inset-left,0px);padding-right:env(safe-area-inset-right,0px)}
+canvas{image-rendering:pixelated;width:100%;height:100%;object-fit:contain;display:block}
+#scan{position:absolute;inset:0;pointer-events:none;
+  background:repeating-linear-gradient(to bottom,#0000 0 2px,#00000030 2px 4px)}
+#vignette{position:absolute;inset:0;pointer-events:none;box-shadow:inset 0 0 90px #000a}
+#flash{position:absolute;inset:0;pointer-events:none;background:#ff4b45;opacity:0;transition:opacity .22s}
+#alarmband{position:absolute;top:0;left:0;right:0;display:flex;flex-wrap:wrap;gap:3px;justify-content:center;
+  padding:4px;pointer-events:none}
+.alm{font-family:var(--ui);font-size:7px;padding:3px 5px;border:1px solid currentColor;background:#000000b8}
+.alm.r{color:var(--red)}.alm.a{color:var(--amber)}.alm.b{color:var(--blue)}
+.blink{animation:bl .7s steps(2,end) infinite}
+@keyframes bl{50%{opacity:.22}}
+@media (prefers-reduced-motion:reduce){.blink{animation:none}}
+
+#tabs{display:flex;gap:2px;padding-block:4px;background:#0b1015;border-top:2px solid var(--bezel);
+  overflow-x:auto;flex:0 0 auto;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#tabs button{flex:1 1 auto;white-space:nowrap;font-size:7px;padding:8px 4px}
+#tabs button.on{background:#17352a;border-color:var(--green);color:var(--green)}
+
+#panel{flex:0 0 340px;background:var(--panel);border-left:2px solid var(--bezel);overflow-y:auto;
+  padding-block:8px;display:flex;flex-direction:column;gap:8px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#panel::-webkit-scrollbar{width:9px}
+#panel::-webkit-scrollbar-thumb{background:var(--bezel2)}
+#panel::-webkit-scrollbar-track{background:#0a0f13}
+
+.box{border:2px solid var(--bezel);background:var(--panel2);padding:7px}
+.box>h3{font-family:var(--ui);font-size:8px;margin:0 0 7px;color:var(--amber);letter-spacing:.5px;
+  display:flex;justify-content:space-between;gap:6px;align-items:baseline}
+.box>h3 em{font-family:var(--rd);font-size:17px;color:var(--dim);letter-spacing:0;font-style:normal}
+.row{display:flex;justify-content:space-between;align-items:baseline;gap:8px;line-height:1.25}
+.row+.row{margin-top:2px}
+.row span:last-child{font-variant-numeric:tabular-nums;white-space:nowrap}
+.k{color:var(--dim);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{height:9px;background:#070c0e;border:1px solid var(--line);margin:3px 0 6px;overflow:hidden}
+.bar>i{display:block;height:100%;background:var(--green);
+  background-image:repeating-linear-gradient(90deg,#ffffff22 0 2px,#0000 2px 4px)}
+.bar.sm{height:6px;margin:2px 0 3px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:4px}
+.grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.grid4 button{padding:7px 2px}
+.seg{display:flex;gap:2px;position:sticky;top:-8px;z-index:2;background:var(--panel);padding-block:4px}
+.seg button{flex:1 1 0;font-size:7px;padding:8px 2px}
+.seg button.on{background:#17352a;border-color:var(--green);color:var(--green)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(32px,1fr));gap:3px}
+.tile{position:relative;overflow:hidden;font-family:var(--rd);font-size:15px;padding:3px 0;background:#0a1013;
+  border:1px solid var(--line);box-shadow:none;color:var(--ink)}
+.tile i{position:absolute;left:0;bottom:0;width:100%;opacity:.28}
+.tile span{position:relative}
+.tile:disabled{opacity:1;cursor:default}
+.tile:not(:disabled){border-color:var(--red);cursor:pointer}
+button.quiet{background:transparent;border-color:var(--line);color:var(--dim);box-shadow:none;margin-top:4px}
+.slide .k{flex:0 0 58px;font-size:17px}
+.slide{display:flex;align-items:center;gap:6px}
+.slide b{font-weight:400;flex:0 0 52px;text-align:right;font-variant-numeric:tabular-nums}
+input[type=range]{flex:1 1 auto;min-width:0;height:18px;-webkit-appearance:none;appearance:none;background:#070c0e;
+  border:1px solid var(--line);margin:0}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:12px;height:16px;background:var(--amber);
+  border:1px solid #000;cursor:ew-resize}
+input[type=range]::-moz-range-thumb{width:12px;height:16px;border-radius:0;background:var(--amber);border:1px solid #000;cursor:ew-resize}
+.tag{font-family:var(--ui);font-size:6px;padding:2px 4px;border:1px solid currentColor;white-space:nowrap}
+.fsw{display:flex;gap:2px;margin-top:5px}
+.fsw button{flex:1 1 0;font-size:7px;padding:7px 2px}
+.fsw button.on.m-main{background:#17352a;border-color:var(--green);color:var(--green)}
+.fsw button.on.m-edg{background:#3a2c10;border-color:var(--amber);color:var(--amber)}
+.fsw button.on.m-off{background:#3a1614;border-color:var(--red);color:var(--red)}
+.t-on{color:var(--green)}.t-off{color:var(--dim)}.t-bad{color:var(--red)}.t-warn{color:var(--amber)}
+.item{border:1px solid var(--line);background:#0c1317;padding:5px;margin-bottom:5px}
+.item:last-child{margin-bottom:0}
+.item .nm{font-family:var(--ui);font-size:7px;letter-spacing:.5px;display:flex;justify-content:space-between;gap:6px;align-items:center}
+.muted{color:var(--dim)}
+.cost{color:var(--amber)}
+.hint{color:var(--dim);font-size:16px;line-height:1.3}
+.no{color:var(--dim);text-align:center;padding:6px 0}
+
+#ticker{flex:0 0 auto;background:#070b0e;border-top:2px solid var(--bezel);height:28px;overflow:hidden;
+  display:flex;align-items:center;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+#tickertext{white-space:nowrap;color:var(--dim);font-size:18px;overflow:hidden;text-overflow:ellipsis}
+#tickertext b{font-weight:400;color:var(--ink)}
+.e-bad{color:var(--red)}.e-warn{color:var(--amber)}.e-good{color:var(--green)}.e-info{color:var(--blue)}
+
+.ov{position:fixed;inset:0;background:#04060cf0;display:none;align-items:center;justify-content:center;z-index:40;
+  padding:max(16px,env(safe-area-inset-left,0px)) max(16px,env(safe-area-inset-right,0px));overflow-y:auto}
+.ov.show{display:flex}
+.card{max-width:660px;width:100%;border:3px solid var(--bezel2);background:linear-gradient(#131c22,#0a1014);
+  padding:18px;box-shadow:0 0 0 3px #000, 0 10px 40px #000a;max-height:100%;overflow-y:auto}
+.card h1{font-family:var(--ui);font-size:24px;margin:0 0 6px;color:var(--green);text-shadow:0 0 14px #5ef08a55;line-height:1.35;text-wrap:balance}
+.card h1.bad{color:var(--red);text-shadow:0 0 14px #ff4b4555}
+.card h2{font-family:var(--ui);font-size:9px;margin:16px 0 6px;color:var(--amber);letter-spacing:.5px}
+.card p{margin:6px 0;line-height:1.35;max-width:64ch}
+.card .sub{color:var(--dim);font-family:var(--ui);font-size:8px;line-height:1.9}
+.keys{display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:baseline}
+.keys b{font-family:var(--ui);font-size:7px;color:var(--cyan);font-weight:400}
+.setrow{display:flex;align-items:center;gap:10px;margin:7px 0}
+.setrow label{flex:0 0 150px;color:var(--dim)}
+.setrow input[type=range]{flex:1 1 auto;height:20px}
+.setrow b{flex:0 0 36px;text-align:right;font-weight:400;font-variant-numeric:tabular-nums}
+.setrow button{flex:0 0 56px}
+@media (max-width:520px){.setrow label{flex-basis:96px}}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
+.acts button{font-size:10px;padding:11px 14px}
+.final{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:6px;margin-top:8px}
+.final div{border:1px solid var(--line);background:#0b1116;padding:5px 7px}
+.final i{display:block;font-family:var(--ui);font-size:6px;color:var(--dim);font-style:normal}
+.final b{font-weight:400;font-size:21px}
+
+.narrowonly{display:none}
+@media (max-width:860px), (max-aspect-ratio:1/1){
+  .narrowonly{display:block}
+  #main{flex-direction:column}
+  #panel{flex:1 1 auto;border-left:0;border-top:2px solid var(--bezel);min-height:0;flex-basis:auto}
+  #canwrap{flex:0 0 auto;aspect-ratio:16/9;max-height:40vh;width:100%}
+  .brand{font-size:10px}
+}
+@media (max-width:520px){
+  .st b{font-size:18px}
+  .card h1{font-size:17px}
+}
+</style>
+
+<div id="app">
+  <header id="hud">
+    <div class="brand">NEUCL<b>I</b>FY<small id="stageLbl"></small></div>
+    <div id="stats"></div>
+    <div class="hudbtn">
+      <button id="bSpeed" title="Simulation speed">1x</button>
+      <button id="bPause" title="Pause (Space)">II</button>
+      <button id="bSet" title="Settings (O)">SET</button>
+      <button id="bHelp" title="Manual (H)">?</button>
+    </div>
+  </header>
+  <main id="main">
+    <section id="stage">
+      <div id="canwrap">
+        <canvas id="cv" width="480" height="270" aria-label="Plant view"></canvas>
+        <div id="scan"></div><div id="vignette"></div><div id="flash"></div>
+        <div id="alarmband"></div>
+      </div>
+      <nav id="tabs"></nav>
+    </section>
+    <aside id="panel"></aside>
+  </main>
+  <footer id="ticker"><span id="tickertext">Welcome to Neuclify.</span></footer>
+</div>
+<div class="ov" id="ov"><div class="card" id="ovcard"></div></div>
+
+<script>
+(function(){
+'use strict';
+
+/* ============================ 0. SMALL TOOLS ============================ */
+let VW=480, VH=270;
+const cv=document.getElementById('cv');
+const ctx=cv.getContext('2d');
+const $=id=>document.getElementById(id);
+const clamp=(v,a,b)=>v<a?a:(v>b?b:v);
+const lerp=(a,b,t)=>a+(b-a)*t;
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const ri=(a,b)=>Math.floor(rnd(a,b+1));
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const chance=p=>Math.random()<p;
+
+function money(n){
+  const s=n<0?'-':''; n=Math.abs(n);
+  if(n>=1e12) return s+'$'+(n/1e12).toFixed(2)+'T';
+  if(n>=1e9) return s+'$'+(n/1e9).toFixed(2)+'B';
+  if(n>=1e6) return s+'$'+(n/1e6).toFixed(2)+'M';
+  if(n>=1e4) return s+'$'+Math.round(n/1e3)+'k';
+  return s+'$'+(n<100?n.toFixed(0):Math.round(n).toLocaleString('en-US'));
+}
+function mw(n){
+  if(n>=1000) return (n/1000).toFixed(n>=10000?0:2)+' GW';
+  if(n>=1) return n.toFixed(n>=100?0:1)+' MW';
+  return (n*1000).toFixed(n>=0.1?0:1)+' kW';
+}
+function num(n,d){return n.toFixed(d===undefined?0:d)}
+
+/* pixel plotting ------------------------------------------------------- */
+function px(x,y,w,h,c){ctx.fillStyle=c;ctx.fillRect(x|0,y|0,Math.max(1,w|0),Math.max(1,h|0))}
+function rect(x,y,w,h,c){ // 1px outline
+  px(x,y,w,1,c);px(x,y+h-1,w,1,c);px(x,y,1,h,c);px(x+w-1,y,1,h,c);
+}
+function panelBox(x,y,w,h,fill,edge,edge2){
+  px(x,y,w,h,fill); rect(x,y,w,h,edge);
+  px(x+1,y+1,w-2,1,edge2||edge); px(x+1,y+1,1,h-2,edge2||edge);
+}
+const FONT={
+'0':'111101101101111','1':'010010010010010','2':'111001111100111','3':'111001111001111','4':'101101111001001',
+'5':'111100111001111','6':'111100111101111','7':'111001001001001','8':'111101111101111','9':'111101111001111',
+'A':'111101111101101','B':'111101110101111','C':'111100100100111','D':'110101101101110','E':'111100111100111',
+'F':'111100111100100','G':'111100101101111','H':'101101111101101','I':'111010010010111','J':'001001001101111',
+'K':'101101110101101','L':'100100100100111','M':'101111111101101','N':'110101101101101','O':'111101101101111',
+'P':'111101111100100','Q':'111101101111011','R':'111101110101101','S':'111100111001111','T':'111010010010010',
+'U':'101101101101111','V':'101101101101010','W':'101101111111101','X':'101101010101101','Y':'101101111010010',
+'Z':'111001010100111','.':'000000000000010',':':'000010000010000','-':'000000111000000','/':'001001010100100',
+'%':'101001010100101',' ':'000000000000000','+':'000010111010000','!':'010010010000010','?':'111001010000010',
+'#':'101111101111101','(':'010100100100010',')':'010001001001010',',':'000000000010010','*':'101010101000000',
+'>':'100010001010100','<':'001010100010001','=':'000111000111000','$':'111110111011111',"'":'010010000000000'
+};
+function text(s,x,y,c,sc){
+  sc=sc||1; s=(''+s).toUpperCase(); let cx=x;
+  for(let i=0;i<s.length;i++){
+    const g=FONT[s[i]]; if(g===undefined){cx+=4*sc;continue}
+    for(let r=0;r<5;r++)for(let k=0;k<3;k++)
+      if(g[r*3+k]==='1') px(cx+k*sc,y+r*sc,sc,sc,c);
+    cx+=4*sc;
+  }
+  return cx;
+}
+function textW(s,sc){return (''+s).length*4*(sc||1)}
+function textC(s,cx,y,c,sc){return text(s,cx-textW(s,sc)/2|0,y,c,sc)}
+
+/* palette -------------------------------------------------------------- */
+const P={
+  black:'#05080a', dark:'#0c1216', night:'#111a2a', steel:'#2b3540', steel2:'#3d4b59', steel3:'#55687a',
+  pale:'#8ea2b3', white:'#dff0f6', ink:'#cfe6dc',
+  green:'#5ef08a', green2:'#2e9b5c', amber:'#ffb23a', amber2:'#a66f18', red:'#ff4b45', red2:'#9e2420',
+  blue:'#56b7ff', blue2:'#1f5f96', cyan:'#7cf3ff', violet:'#b07cff', yellow:'#ffe66d',
+  grass:'#2c5338', grass2:'#1d3826', dirt:'#4a3a2c', rust:'#8a5a3c', concrete:'#4e5a66', concrete2:'#39434d',
+  water:'#1d4f6b', glow:'#9cffd0'
+};
+function heatColor(t){
+  if(t<200) return '#2b4a63'; if(t<380) return '#2f6b7a';
+  if(t<560) return '#5a8a4a'; if(t<720) return '#b8a63a';
+  if(t<900) return '#e8832a'; if(t<1100) return '#ff5a22';
+  if(t<1500) return '#ff2a18'; return '#fff0a0';
+}
+
+/* ============================ 1. GAME DATA ============================ */
+const TIERS=[
+ {id:'house', name:'Your House',        demand:0.006, rate:960, cost:0,      rep:0,  w:'1 house'},
+ {id:'street',name:'Larkspur Street',   demand:0.085, rate:620, cost:1200,   rep:18, w:'14 houses'},
+ {id:'villg', name:'Pinebrook Village', demand:1.3,   rate:370, cost:11000,  rep:28, w:'340 homes'},
+ {id:'town',  name:'Ashford Town',      demand:16,    rate:225, cost:70000,  rep:38, w:'9,000 people'},
+ {id:'city',  name:'Harbour City',      demand:135,   rate:148, cost:420000, rep:46, w:'210,000 people'},
+ {id:'metro', name:'Metro Steel Belt',  demand:480,   rate:114, cost:2.3e6,  rep:54, w:'heavy industry'},
+ {id:'regn',  name:'Calder Region',     demand:1400,  rate:92,  cost:1.2e7,  rep:62, w:'4 million people'},
+ {id:'natn',  name:'The Nation',        demand:4800,  rate:78,  cost:6.5e7,  rep:70, w:'31 million people'},
+ {id:'cont',  name:'The Continent',     demand:16500, rate:66,  cost:3.4e8,  rep:78, w:'9 countries'},
+ {id:'world', name:'The World',         demand:62000, rate:58,  cost:1.9e9,  rep:88, w:'everyone'}
+];
+
+const TURBS=[
+ {name:'TG-1 Kettle',     cap:14,    cost:2600},
+ {name:'TG-2 Condensing', cap:65,    cost:19000},
+ {name:'TG-3 Tandem',     cap:340,   cost:150000},
+ {name:'TG-4 Compound',   cap:1250,  cost:950000},
+ {name:'TG-5 Supercrit',  cap:4800,  cost:5.8e6},
+ {name:'TG-6 Monolith',   cap:17000, cost:3.6e7}
+];
+
+const GOODS=[
+ {id:'fuel',   name:'Fuel Assemblies', unit:'assy',  price:430, pack:2,  eta:16, cap:40},
+ {id:'coolant',name:'Makeup Water',    unit:'kL',    price:24,  pack:20, eta:9,  cap:400},
+ {id:'food',   name:'Canteen Supply',  unit:'crate', price:36,  pack:10, eta:7,  cap:300},
+ {id:'parts',  name:'Spare Parts',     unit:'kit',   price:185, pack:4,  eta:11, cap:120}
+];
+
+/* upgrade tree: lv = number owned, vals[lv] is the current effect value */
+const UPG=[
+ {id:'core', name:'Core Expansion', cat:'Reactor', unit:' slots',
+  vals:[4,6,10,16,24,36,52,72,100,132], costs:[0,3200,16000,92000,520000,2.6e6,1.3e7,7e7,3.6e8,1.9e9],
+  desc:'Fuel positions in the pressure vessel. More assemblies, more thermal power.'},
+ {id:'fuel', name:'Fuel Enrichment', cat:'Reactor', unit:' MWt/assy',
+  vals:[8,16,34,70,150,320,650,1200,2000], costs:[0,4800,24000,130000,700000,3.4e6,1.7e7,9e7,4.4e8],
+  desc:'Hotter fuel per position. Raises burn-up rate and assembly price too.'},
+ {id:'loops',name:'Coolant Loops', cat:'Reactor', unit:' loops',
+  vals:[1,2,3,4,5,6], costs:[0,2200,14000,110000,900000,7e6],
+  desc:'Independent pump loops. Redundancy against pump failure.'},
+ {id:'pumpt',name:'Pump Capacity', cat:'Reactor', unit:' MW/loop',
+  vals:[22,52,130,340,900,2400,6400,17000,46000], costs:[0,2600,15000,90000,540000,3.1e6,1.6e7,8.5e7,4.2e8],
+  desc:'Heat each loop can carry away. Your real power ceiling.'},
+ {id:'vessel',name:'Containment Rating', cat:'Safety', unit:' bar',
+  vals:[150,190,235,290,360,450], costs:[0,6000,40000,260000,1.6e6,9e6],
+  desc:'Pressure the vessel tolerates before the walls start giving way.'},
+ {id:'seis', name:'Seismic Dampers', cat:'Safety', unit:'% quake damp',
+  vals:[0,30,55,75,90], costs:[0,9000,60000,380000,2.2e6],
+  desc:'Springs and base isolators under the whole island.'},
+ {id:'diesel',name:'Backup Diesels', cat:'Safety', unit:'% flow in blackout',
+  vals:[0,40,70,100], costs:[0,14000,95000,600000],
+  desc:'Keeps the pumps turning when the grid drops you, and can carry customers on backup.'},
+ {id:'scrub',name:'Filtered Venting', cat:'Safety', unit:'% release cut',
+  vals:[0,50,80,95], costs:[0,11000,70000,420000],
+  desc:'Vent pressure without dumping fission products on the neighbours.'},
+ {id:'turbe',name:'Turbine Blading', cat:'Plant', unit:'% efficiency',
+  vals:[33,36,39,42,45,48], costs:[0,7000,45000,300000,1.9e6,1.1e7],
+  desc:'Thermal-to-electric conversion across every turbine.'},
+ {id:'line', name:'Transmission Line', cat:'Grid', unit:' MW capacity',
+  vals:[1.2,4,45,420,1900,6500,22000,80000], costs:[0,900,7000,65000,480000,3e6,1.7e7,9.5e7],
+  desc:'What the wires out of the switchyard can physically carry.'},
+ {id:'hv',   name:'HV Conversion', cat:'Grid', unit:'% line loss',
+  vals:[11,8.5,6,4.5,3,2], costs:[0,3500,26000,170000,1.1e6,6.5e6],
+  desc:'Higher voltage, thinner losses between here and the meters.'},
+ {id:'makeup',name:'Auto Makeup', cat:'Control', unit:'',
+  vals:['manual','automatic'], costs:[0,5500],
+  desc:'Feeds makeup water from the warehouse without being asked.'},
+ {id:'train',name:'Operator Training', cat:'Staff', unit:'% skill',
+  vals:[0,25,50,75,100], costs:[0,4200,30000,210000,1.4e6],
+  desc:'Faster repairs, fewer human-error incidents, calmer crew.'},
+ {id:'store',name:'Warehouse', cat:'Staff', unit:'x storage',
+  vals:[1,3,9,30,120], costs:[0,3000,22000,160000,1.1e6],
+  desc:'Stock more of everything and buy it 10% cheaper per level.'},
+ {id:'pr',   name:'Public Relations', cat:'Staff', unit:'% damage control',
+  vals:[0,30,55,80], costs:[0,8500,55000,340000],
+  desc:'Softens reputation hits and slows public forgetting.'}
+];
+const UPGBY={}; UPG.forEach(u=>UPGBY[u.id]=u);
+
+/* Pacing. Neuclify is a slow game: capital is hard-won and the plant is left to run.
+   COSTX stretches every capital price; the spot market pays almost nothing, so growth
+   comes from signing customers rather than dumping surplus down the wires. */
+const COSTX=1.45;
+const SPOT=4;               // $/MWh for power nobody ordered
+function tierCost(i){return Math.round(TIERS[i].cost*COSTX)}
+function turbCost(m){return Math.round(TURBS[m].cost*COSTX)}
+function goodPrice(g){
+  let p=g.price*(1-0.1*S.up.store)*COSTX;
+  if(g.id==='fuel') p*=1+S.up.fuel*0.85;
+  return p;
+}
+
+/* ---------------------------- the crew --------------------------------- */
+const FIRST=['Mira','Jonas','Petra','Otto','Yusuf','Hana','Dermot','Ingrid','Kwame','Sofia','Lars','Nadia',
+ 'Emeka','Rosa','Tomas','Aiko','Bram','Freya','Hugo','Lena','Osric','Priya','Rhona','Stig','Talia','Uma',
+ 'Viktor','Wren','Zoya','Calla','Dmitri','Esther','Finn','Greta','Ilya','Juno','Kasper','Luz','Marek','Noor',
+ 'Saoirse','Bo','Imani','Teodor','Ana','Felix','Rune','Mei','Arto','Delphine'];
+const LAST=['Okonkwo','Vance','Halloran','Brandt','Nascimento','Keller','Oyelaran','Marsh','Delacroix',
+ 'Virtanen','Abara','Stroud','Kirby','Ferreira','Novak','Tanaka','Ellery','Bergstrom','Mwangi','Padilla',
+ 'Roche','Quist','Sandoval','Thorne','Ueda','Varga','Whitlock','Yilmaz','Zabel','Crane','Dunne','Esposito',
+ 'Fairweather','Gundersen','Haruna','Iqbal','Lindqvist','Mbeki','Pryce','Rasmussen'];
+const TRAITS=[
+ {id:'navy',  name:'Ex-navy',       blurb:'Served on a boat reactor. Nothing on your panel frightens them.',rx:3},
+ {id:'wrench',name:'Grease monkey', blurb:'Happier under a pump than in the canteen.',mech:3},
+ {id:'dock',  name:'Dockhand',      blurb:'Has shifted freight since they were sixteen.',log:3},
+ {id:'owl',   name:'Night owl',     blurb:'Works the small hours without flagging.',stam:3},
+ {id:'rookie',name:'Rookie',        blurb:'Cheap, keen, and not much use yet.',wage:0.55},
+ {id:'vet',   name:'Veteran',       blurb:'Knows every valve by its first name. Charges accordingly.',rx:1,mech:1,log:1,stam:1,wage:1.5},
+ {id:'stew',  name:'Union steward', blurb:'Keeps the whole crew talking to you.',mood:1},
+ {id:'steady',name:'Steady hands',  blurb:'Does not panic, does not rush.',rx:2,mech:1},
+ {id:'hauler',name:'Ex-haulier',    blurb:'Used to run the supply route themselves.',log:2,stam:1},
+ {id:'drifter',name:'Drifter',      blurb:'Good on the day. Not always there the next.',rx:1,mech:1,log:1,wage:0.75,mood:-1}
+];
+const TRAITBY={}; TRAITS.forEach(t=>TRAITBY[t.id]=t);
+const DUTIES=[
+ {id:'ctrl', short:'PANEL', name:'Control room', stat:'rx',   blurb:'Watches the reactor. Fewer mistakes, fewer incidents.'},
+ {id:'maint',short:'MAINT', name:'Maintenance',  stat:'mech', blurb:'Works the repair board. Nothing gets fixed without them.'},
+ {id:'yard', short:'YARD',  name:'Supply yard',  stat:'log',  blurb:'Unloads the trucks. Nothing reaches the store without them.'},
+ {id:'rest', short:'OFF',   name:'Off shift',    stat:'',     blurb:'Resting. Recovers fatigue, still draws half pay.'}
+];
+let WID=0;
+function makeWorker(){
+  const t=pick(TRAITS);
+  const w={id:++WID, first:pick(FIRST), last:pick(LAST), trait:t.id,
+    rx:clamp(ri(1,6)+(t.rx||0),1,10), mech:clamp(ri(1,6)+(t.mech||0),1,10),
+    log:clamp(ri(1,6)+(t.log||0),1,10), stam:clamp(ri(2,7)+(t.stam||0),1,10),
+    duty:'rest', mood:clamp(68+ri(0,20)+(t.mood||0)*10,0,100), fat:0, ph:Math.random()*6.28, days:0};
+  w.wage=Math.round((1.2+(w.rx+w.mech+w.log)*0.3+w.stam*0.1)*(t.wage||1)*10)/10;
+  return w;
+}
+function wName(w){return w.first+' '+w.last}
+/* how much of a worker's rating actually shows up on shift */
+function cond(w){ return clamp((0.35+0.65*w.mood/100)*(1-w.fat/150),0.12,1.15) }
+function statOf(w,s){ return (w[s]+U('train')/25)*cond(w) }
+function dutyPower(duty){
+  const d=DUTIES.find(x=>x.id===duty); let p=0;
+  for(const w of S.crew.workers) if(w.duty===duty) p+=statOf(w,d.stat);
+  return S.crew.strike>0?0:p;
+}
+const onDuty=d=>S.crew.workers.filter(w=>w.duty===d);
+function crewCount(){return S.crew.workers.length}
+function avgMood(){ if(!crewCount()) return 0; let m=0; for(const w of S.crew.workers) m+=w.mood; return m/crewCount() }
+function wageBill(){ let s=0; for(const w of S.crew.workers) s+=w.wage*(w.duty==='rest'?0.5:1); return s }
+function hireFee(w){ return Math.round(w.wage*26) }
+
+/* ============================ 2. STATE ============================ */
+let S=null, lastSave=0;
+
+function newGame(){
+  S={
+    t:0, hours:6, day:1, speed:1, paused:false, mute:false, view:'ctrl', startup:true,
+    money:6000, rep:55, over:null, win:false, winT:0, ending:null,
+    r:{ rods:100, flux:0.4, temp:95, press:1.0, xe:2, iod:40, coolant:100, decay:0,
+        integ:100, scramT:0, jam:0, noise:0, vent:0, leak:0, inlet:34 },
+    // the plant is handed over cold and dark: pumps stopped, turbine off the bars, crew off shift
+    core:[], pumps:[{s:0,h:100},{s:0,h:100},{s:0,h:100},{s:0,h:100},{s:0,h:100},{s:0,h:100}],
+    turbs:[{m:0,h:100,on:false,spin:0}],
+    up:{core:0,fuel:0,loops:0,pumpt:0,vessel:0,seis:0,diesel:0,scrub:0,turbe:0,line:0,hv:0,makeup:0,train:0,store:0,pr:0},
+    inv:{fuel:6,coolant:120,food:60,parts:8},
+    orders:[], jobs:[],
+    crew:{workers:[], pool:[], poolT:0, strike:0},
+    dock:[],
+    grid:{on:[true,false,false,false,false,false,false,false,false,false], fd:['main','off','off','off','off','off','off','off','off','off'], sat:100, freq:50, lineH:100, blackout:0, trip:0},
+    out:{gross:0,net:0,deliv:0,demand:0,served:0,thermal:0,cool:0,cap:0,parasite:0,spill:0,bypass:0,income:0,spend:0},
+    st:{mwh:0, earned:0, peak:0, maxTemp:0, events:0, scrams:0, days:0},
+    ev:{next:38, active:[]},
+    log:[], flash:0, shake:0, alerts:[]
+  };
+  // staggered initial burn-up so the first assemblies do not all expire on the same shift
+  for(let i=0;i<UPGBY.core.vals[0];i++) S.core.push({burn:i*7, on:true});
+  // two hands on the books, both still off shift, and a yard full of people looking for work
+  const a=makeWorker(); a.rx=Math.max(a.rx,5);
+  const b=makeWorker(); b.mech=Math.max(b.mech,5);
+  S.crew.workers.push(a,b);
+  refreshPool();
+  logMsg('Plant handed over cold. Rods fully in, pumps stopped, turbine off the bars, nobody on shift.','info');
+  logMsg('Two workers are on the books. Give them duties in the Supply yard, then work down the cold start checklist.','info');
+}
+
+/* derived values -------------------------------------------------------- */
+const U=id=>UPGBY[id].vals[S.up[id]];
+const upMax=id=>S.up[id]>=UPGBY[id].vals.length-1;
+const upCost=id=>upMax(id)?Infinity:Math.round(UPGBY[id].costs[S.up[id]+1]*COSTX);
+function pumpCap(){ // MW of heat removal available at 100% on all healthy loops
+  let c=0; const per=U('pumpt'), n=U('loops');
+  for(let i=0;i<n;i++) c+=per*(S.pumps[i].h/100);
+  return c;
+}
+function pumpFlow(){ // 0..1 weighted actual flow
+  let f=0, n=U('loops'), per=U('pumpt'), tot=per*n||1;
+  for(let i=0;i<n;i++) f+=per*(S.pumps[i].s/100)*(S.pumps[i].h/100);
+  return f/tot;
+}
+/* heat removal the loops can reach at the current pump setting, once the core is hot enough */
+function coolCap(){ return (pumpFlow()*pumpCap()+coreThermalMax()*0.04)*1.6 }
+/* the same with every pump wide open — the plant's physical ceiling */
+function removalCap(){ return (pumpCap()+coreThermalMax()*0.04)*1.6 }
+/* where the core temperature will settle at the present power and flow */
+function settleTemp(){
+  const c=pumpFlow()*pumpCap()+coreThermalMax()*0.04;
+  if(c<=0.0001) return 2600;
+  return Math.min(2600,S.r.inlet+700*thermalNow()/c);
+}
+/* the cold start sequence, in the order an operator would actually do it */
+function startupSteps(){
+  return [
+    ['Put a worker on PANEL duty — Supply', onDuty('ctrl').length>0],
+    ['Open a coolant pump',                 pumpFlow()>0.18],
+    ['Withdraw the rods below 70%',         S.r.rods<70],
+    ['Take the core critical — flux over 5%',S.r.flux>5],
+    ['Start a turbine — Turbines',          S.turbs.some(t=>t.on)],
+    ['Put power on the house',              S.out.mainS>0]
+  ];
+}
+function startupDone(){ for(const s of startupSteps()) if(!s[1]) return false; return true }
+function liveAssy(){let n=0;for(const a of S.core) if(a.on && a.burn<100) n++;return n}
+function coreThermalMax(){
+  let m=0;
+  for(const a of S.core) if(a.on && a.burn<100) m+=U('fuel')*(1-0.55*(a.burn/100));
+  return m;
+}
+function turbCap(){let c=0;for(const t of S.turbs) if(t.on) c+=TURBS[t.m].cap*(t.h/100);return c}
+function turbCapRaw(){let c=0;for(const t of S.turbs) c+=TURBS[t.m].cap;return c}
+/* Each customer hangs off its own feeder bay in the switchyard. A feeder is fed from MAIN (the
+   station, through the switchyard), from BACKUP (islanded onto the site's diesel generators),
+   or is OFF with its breaker open. */
+const FMODES=['main','edg','off'], DIESEL_PRICE=300;
+function demProf(){
+  let p=0.78+0.34*Math.sin((S.hours-7.5)/24*Math.PI*2)+0.08*Math.sin(S.hours/24*Math.PI*6);
+  for(const e of S.ev.active) if(e.demandMul) p*=e.demandMul;
+  return p;
+}
+function feedMode(i){ return S.grid.on[i]?(S.grid.fd&&S.grid.fd[i])||'main':'off' }
+function feederDem(i){ return S.grid.on[i]?TIERS[i].demand*demProf():0 }
+/* what the energised feeders are asking for right now */
+function demandNow(){ let d=0; for(let i=0;i<10;i++) if(feedMode(i)!=='off') d+=feederDem(i); return d }
+/* one diesel set is sized to the station: enough to carry its safety loads with margin */
+function edgSetMW(){ return Math.max(0.05,coreThermalMax()*0.025) }
+function edgCap(){ return auxState().edgs*edgSetMW() }
+function setFeeder(i,m){
+  if(!S.grid.on[i]||FMODES.indexOf(m)<0||feedMode(i)===m) return;
+  if(m==='edg'&&!auxState().edgs){ logMsg('No backup generators fitted — buy diesels on the Grid page first.','warn'); return }
+  S.grid.fd[i]=m;
+  const T=TIERS[i];
+  logMsg(m==='main'?T.name+' feeder closed onto the switchyard.':
+         m==='edg'?T.name+' islanded onto the backup diesels.':
+         T.name+' feeder breaker opened. Planned outage announced.',m==='off'?'warn':'info');
+  beep(m==='off'?330:660,0.06);
+}
+function rateNow(){
+  let d=0,r=0;
+  TIERS.forEach((T,i)=>{ if(S.grid.on[i]){d+=T.demand; r+=T.demand*T.rate} });
+  return d>0? r/d : 0;
+}
+function repMul(){return 0.45+0.75*(S.rep/100)}
+function invCap(id){return GOODS.find(g=>g.id===id).cap*U('store')}
+function tiersOn(){return S.grid.on.filter(Boolean).length}
+function pressLimit(){return U('vessel')}
+function evActive(id){return S.ev.active.some(e=>e.id===id)}
+
+function logMsg(txt,kind){
+  S.log.unshift({txt,kind:kind||'info',at:S.day+'d '+String(Math.floor(S.hours)).padStart(2,'0')+'h'});
+  if(S.log.length>80) S.log.pop();
+  tickText(txt,kind);
+}
+/* ============================ 3. SIMULATION ============================ */
+const HPS=0.3;              // in-game hours per real second at 1x  (1 day = 80 s)
+
+function step(dt){
+  if(S.over) return;
+  const T=dt*S.speed;       // plant-seconds
+  const H=T*HPS;            // in-game hours
+  S.t+=T;
+  S.hours+=H;
+  while(S.hours>=24){ S.hours-=24; S.day++; S.st.days++; newDay(); }
+  stepReactor(T,H);
+  stepPlant(T,H);
+  stepGrid(T,H);
+  stepMoney(H);
+  stepLogistics(H);
+  stepJobs(H);
+  stepEvents(T,H);
+  stepDamage(T,H);
+  S.flash=Math.max(0,S.flash-dt*2.2);
+  S.shake=Math.max(0,S.shake-dt*2.6);
+}
+
+function newDay(){
+  const need=crewCount();
+  const fed=S.inv.food>=need;
+  if(fed) S.inv.food-=need; else S.inv.food=0;
+  if(!fed&&need>0) logMsg('The canteen came up short today. The crew noticed.','warn');
+  for(const w of S.crew.workers){
+    w.days++;
+    w.mood=clamp(w.mood+(fed?4:-18)+(w.duty==='rest'?3:0)+(TRAITBY[w.trait].mood||0)*2,0,100);
+    if(w.mood<18&&chance(0.5)){
+      logMsg(wName(w)+' has handed in their notice and walked off site.','bad');
+      S.crew.workers=S.crew.workers.filter(x=>x.id!==w.id);
+    } else if(w.mood<34&&chance(0.3)) logMsg(wName(w)+' is talking about leaving. Feed them and give them a rest day.','warn');
+  }
+}
+/* repair throughput: nothing happens on the board without maintenance staff */
+function skill(){ return S.crew.strike>0?0:clamp(0.18+dutyPower('maint')*0.16,0,6) }
+/* unloading throughput at the gate, in units per hour */
+function yardRate(){ return S.crew.strike>0?0.1:0.25+dutyPower('yard')*1.25 }
+
+function stepReactor(T,H){
+  const r=S.r;
+  if(r.jam>0) r.jam-=T;
+  if(r.scramT>0){ r.rods=100; r.scramT-=T; }
+  // reactivity balance
+  let burn=0,n=0; for(const a of S.core) if(a.on&&a.burn<100){burn+=a.burn;n++}
+  const avgBurn=n?burn/n:0;
+  // rods add reactivity; fuel temperature (Doppler) removes it instantly with power, which is what
+  // makes the core self-regulating. Coolant temperature trims it slowly. Xenon and burn-up eat into it.
+  let rho=0.12*(1-r.rods/100)-0.0108-r.flux*0.00075-(r.temp-290)*0.00004
+          -r.xe*0.00034-(avgBurn/100)*0.02;
+  for(const e of S.ev.active) if(e.rho) rho+=e.rho;
+  if(n===0) rho=-1;
+  r.flux+=(r.flux*rho*3+0.05*(1-r.rods/100)*(n?1:0))*T;
+  r.flux=clamp(r.flux,0,160);
+  // decay heat: fission products keep making heat long after the chain reaction stops
+  r.decay+=((r.flux/100)*0.07-r.decay)*0.02*T;
+
+  // heat balance — forced flow from the pumps plus a little natural circulation
+  const thermal=thermalNow();
+  let forced=pumpFlow()*pumpCap();
+  for(const e of S.ev.active) if(e.coolMul) forced*=e.coolMul;   // events hit the pumps, not physics
+  // pumps need power: on the diesels only the safety bus runs; with nothing, they coast down
+  const ax=auxState();
+  if(ax.src==='EDG') forced*=U('diesel')/100; else if(ax.src==='NONE') forced*=0.08;
+  let cool=(forced+coreThermalMax()*0.04)*clamp((r.temp-r.inlet)/700,0,1.6);
+  if(r.coolant<=0.5) cool*=0.06; else if(r.coolant<35) cool*=0.45+0.55*(r.coolant/35);
+  const mass=Math.max(4,coreThermalMax()*0.45);
+  r.temp+=(thermal-cool)/mass*T;
+  r.temp=clamp(r.temp,r.inlet,2600);
+  S.out.thermal=thermal; S.out.cool=cool;
+  S.st.maxTemp=Math.max(S.st.maxTemp,r.temp);
+
+  // pressure
+  let pt=1+Math.max(0,r.temp-95)*0.16;
+  if(r.vent>0) pt*=0.5;
+  if(r.coolant<20) pt*=0.4+0.03*r.coolant;
+  r.press+=(pt-r.press)*clamp(0.5*T,0,1);
+  r.press=Math.max(0.6,r.press);
+
+  // reactor protection system — drops the rods before an overshoot becomes a wreck.
+  // It cannot save a core with nothing carrying the decay heat away.
+  if(r.rods<98&&(r.temp>1150||r.press>pressLimit()*1.04))
+    scram(r.temp>1150?'high core temperature':'high vessel pressure');
+
+  // xenon / iodine
+  r.iod+=(r.flux*0.01-r.iod*0.004)*T;
+  r.xe+=(r.iod*0.004-r.xe*(0.005+r.flux*0.0012))*T;
+  r.iod=Math.max(0,r.iod); r.xe=Math.max(0,r.xe);
+
+  // coolant inventory
+  r.coolant-=(0.02+r.flux/100*0.06)*H;
+  if(r.leak>0) r.coolant-=r.leak*T;
+  if(r.vent>0){ r.coolant-=0.35*T; S.rep=clamp(S.rep-0.5*T*(1-U('scrub')/100),0,100); }
+  r.coolant=clamp(r.coolant,0,100);
+  if(S.up.makeup>0 && r.coolant<88 && S.inv.coolant>0){
+    const want=Math.min(88-r.coolant, S.inv.coolant, 14*H);
+    r.coolant+=want; S.inv.coolant-=want;
+  }
+  // burn-up
+  if(r.flux>1){
+    const rate=r.flux/100*0.16*H;
+    for(const a of S.core) if(a.on&&a.burn<100){
+      const was=a.burn;
+      a.burn=Math.min(100,a.burn+rate);
+      if(was<86&&a.burn>=86) logMsg('Fuel assemblies are nearly spent. Order replacements and plan a shutdown.','warn');
+      if(a.burn>=100) logMsg('A fuel assembly is spent. Replace it in the Reactor Core view.','warn');
+    }
+  }
+  if(r.noise>0) r.noise-=H;
+}
+function thermalNow(){ return (S.r.flux/100+(S.r.decay||0))*coreThermalMax(); }
+
+/* Auxiliary power. While the unit generates, its own house loads (coolant pumps, feed
+   pumps, ventilation) run off the unit auxiliary transformer. Shut down, they come off
+   the station service transformer, fed from the grid — and that power is bought. Lose
+   offsite power while shut down and only the emergency diesels keep the safety bus alive. */
+const IMPORT_PRICE=95;                       // $/MWh paid for house load drawn from the grid
+function auxState(){
+  const gen=S.out.gross>0.0005;
+  const offsite=S.grid.trip<=0&&S.grid.lineH>0&&!evActive('blackout');
+  const edgs=[0,1,2,3][S.up.diesel]||0;
+  const src=gen?'UAT':offsite?'SST':edgs>0?'EDG':'NONE';
+  return {gen,offsite,edgs,src,run:src==='EDG'||(S.out.bk||0)>0};
+}
+
+/* The station grows with the business: each stage adds units, cooling towers and a
+   bigger switchyard to every exterior view, and a better-equipped control room. */
+const STAGES=['PILOT PLANT','STREET STATION','DISTRICT STATION','GENERATING STATION','POWER COMPLEX','GLOBAL ENERGY COMPLEX'];
+function plantStage(){
+  let up=0; for(const k in S.up) up+=S.up[k];
+  const t=tiersOn();
+  const byT=t>=9?5:t>=7?4:t>=5?3:t>=3?2:t>=2?1:0;
+  return Math.max(byT,Math.min(5,Math.floor(up/9)));
+}
+function siteUnits(st){ return st>=5?4:st>=4?3:st>=3?2:1 }
+
+function stepPlant(T,H){
+  // turbine spin + wear
+  const grossCap=turbCap();
+  for(const t of S.turbs){
+    const want=t.on&&S.out.gross>0?1:0;
+    t.spin=lerp(t.spin,want,clamp(T*1.5,0,1));
+    if(t.on&&S.out.gross>0.01){
+      t.h=Math.max(0,t.h-(0.0045+(S.out.gross/Math.max(1,grossCap))*0.012)*H);
+      if(t.h<=0){ t.on=false; t.h=0; logMsg('Turbine '+TURBS[t.m].name+' has seized. It needs a full overhaul.','bad'); S.flash=0.6; }
+    }
+  }
+  // pump wear
+  const n=U('loops');
+  for(let i=0;i<n;i++){ const p=S.pumps[i];
+    if(p.s>2&&p.h>0){ p.h=Math.max(0,p.h-(0.004+p.s/100*0.01)*H);
+      if(p.h<=0) logMsg('Coolant pump '+(i+1)+' has failed. Heat removal is reduced.','bad'); }
+  }
+  // crew fatigue, morale and the recruitment board
+  if(S.crew.strike>0) S.crew.strike-=H;
+  for(const w of S.crew.workers){
+    if(w.duty==='rest') w.fat=Math.max(0,w.fat-(1.8+w.stam*0.12)*H);
+    else w.fat=Math.min(100,w.fat+(0.62-w.stam*0.028)*H);
+    if(w.fat>80) w.mood=clamp(w.mood-0.09*H,0,100);
+    else if(w.duty==='rest') w.mood=clamp(w.mood+0.05*H,0,100);
+    if(S.inv.food<=0) w.mood=clamp(w.mood-0.1*H,0,100);
+  }
+  S.crew.poolT-=H;
+  if(S.crew.poolT<=0) refreshPool();
+  if(crewCount()&&avgMood()<30&&S.crew.strike<=0&&chance(0.012*H)) fireEvent('strike');
+}
+
+function stepGrid(T,H){
+  const o=S.out, g=S.grid;
+  let gross=S.out.thermal*(U('turbe')/100);
+  gross=Math.min(gross,turbCap());
+  for(const e of S.ev.active) if(e.genMul) gross*=e.genMul;
+  const parasite=o.cool*0.021+(coreThermalMax()>0?0.05:0);
+  o.gross=gross; o.parasite=parasite;
+  o.net=Math.max(0,gross-parasite);
+  const cap=U('line')*(g.lineH>0?1:0)*(g.trip>0?0:1);
+  o.cap=cap;
+  // the switchyard only accepts what the wires can carry; the rest is bypassed to the condenser
+  let thru=Math.min(o.net,cap);
+  o.bypass=Math.max(0,o.net-thru);
+  if(g.lineH<100&&S.crew.strike<=0) g.lineH=Math.min(100,g.lineH+0.4*H*skill());
+  if(g.trip>0){ g.trip-=H; if(g.trip<=0){ g.lineH=Math.max(35,g.lineH); logMsg('Main line re-energised.','good'); } }
+
+  const deliv=thru*(1-U('hv')/100);
+  // share the power out feeder by feeder. Short of power, the switchyard holds the oldest
+  // contracts and sheds from the newest end; the diesels carry the safety bus before any customer.
+  const ax=auxState();
+  let mainLeft=deliv, bkLeft=Math.max(0,edgCap()-(ax.src==='EDG'?o.parasite:0));
+  let dem=0, mainDem=0, conDem=0, offDem=0, mainS=0, bk=0, bkDem=0, rev=0;
+  const fs=o.fs||(o.fs=[]);
+  for(let i=0;i<10;i++){
+    const d=feederDem(i), m=feedMode(i); let s=0;
+    conDem+=d;
+    if(m==='main'){ s=Math.min(d,mainLeft); mainLeft-=s; mainS+=s; mainDem+=d; dem+=d }
+    else if(m==='edg'){ s=Math.min(d,bkLeft); bkLeft-=s; bk+=s; bkDem+=d; dem+=d }
+    else offDem+=d;
+    fs[i]=s; rev+=s*TIERS[i].rate;
+  }
+  o.demand=dem; o.deliv=deliv; o.mainS=mainS; o.bk=bk; o.bkDem=bkDem; o.rev=rev;
+  o.served=mainS+bk;
+  o.spill=Math.max(0,mainLeft);
+  o.dsl=(bk+(ax.src==='EDG'?Math.min(o.parasite,edgCap()):0))*DIESEL_PRICE;
+  // cold start: the network is not yet relying on you, so nothing is held against the plant
+  if(S.startup){
+    g.sat=100;
+    if(mainS>0&&mainS>=mainDem*0.98&&startupDone()){
+      S.startup=false;
+      logMsg('Synchronised to the grid. The house is on your power — from here the network is counting.','good');
+      beep(880,0.14);
+    }
+  } else {
+    // a planned outage is resented, but much less than a blackout nobody warned them about
+    const target=conDem>0?clamp((o.served+offDem*0.4)/conDem*100,0,100):100;
+    g.sat=lerp(g.sat,target,clamp(0.3*H,0,1));
+    // a wrecked reputation rebuilds faster than a good one improves
+    const drift=(g.sat-82)*(g.sat>82?0.006*(1+(100-S.rep)/120):0.003)*H;
+    S.rep=clamp(S.rep+(drift<0?drift*(1-U('pr')/150):drift*(1+U('pr')/400)),0,100);
+    if(g.sat<35&&chance(0.03*H)){ S.rep=clamp(S.rep-2.5*(1-U('pr')/100),0,100);
+      logMsg('Rolling blackouts across your grid. The public is not impressed.','bad'); }
+  }
+  g.freq=50+clamp(mainDem>0?(deliv-mainDem)/mainDem:0,-0.35,0.35)*2.1;
+  S.st.peak=Math.max(S.st.peak,o.served);
+  S.st.mwh+=o.served*H;
+  // victory watch
+  if(g.on[9]&&g.sat>=95){ S.winT+=H; if(S.winT>=72&&!S.win) winGame(); } else S.winT=Math.max(0,S.winT-H*0.5);
+  // the site grows
+  const st=plantStage();
+  if(st>(S.stage||0)){ S.stage=st;
+    logMsg('The site has grown into a '+STAGES[st].toLowerCase()+'.'+(siteUnits(st)>1?' Unit '+siteUnits(st)+' is on the skyline.':''),'good'); beep(740,0.12) }
+}
+
+function stepMoney(H){
+  const o=S.out;
+  // each feeder pays its own tariff for what it actually received
+  const sales=(o.rev||0)*repMul(), spotInc=o.spill*SPOT;
+  const income=sales+spotInc;
+  const maint=coreThermalMax()*0.004+turbCapRaw()*0.0022+U('line')*0.0015;
+  const wages=wageBill();
+  // shut down, the house load is bought from the grid (free during the cold-start grace period)
+  const imp=(auxState().src==='SST'&&!S.startup)?o.parasite*IMPORT_PRICE:0;
+  const dsl=o.dsl||0;
+  const spend=maint+wages+imp+dsl;
+  o.income=income; o.spend=spend;
+  o.sales=sales; o.spotInc=spotInc; o.wages=wages; o.upkeep=maint; o.imp=imp;
+  S.money+=(income-spend)*H;
+  S.st.earned+=income*H;
+  if(S.money<-40000) gameOver('bankrupt');
+}
+
+function stepLogistics(H){
+  // trucks on the road
+  for(let i=S.orders.length-1;i>=0;i--){
+    const or=S.orders[i];
+    if(or.hold>0){ or.hold-=H; continue }
+    or.eta-=H;
+    if(or.eta<=0){
+      const g=GOODS.find(x=>x.id===or.id);
+      S.dock.push({id:or.id,qty:or.qty,left:or.qty,wait:0});
+      logMsg('A truck is at the gate with '+or.qty+' '+g.unit+' of '+g.name.toLowerCase()+
+        '. The yard crew has to unload it.',onDuty('yard').length?'info':'warn');
+      S.orders.splice(i,1);
+    }
+  }
+  // unloading at the dock, one truck at a time
+  if(S.dock.length){
+    const d=S.dock[0];
+    d.left-=yardRate()*H;
+    for(let i=1;i<S.dock.length;i++) S.dock[i].wait+=H;
+    if(d.left<=0){
+      const cap=invCap(d.id), g=GOODS.find(x=>x.id===d.id);
+      const got=Math.min(d.qty,Math.max(0,cap-S.inv[d.id]));
+      S.inv[d.id]+=got;
+      logMsg('Unloaded '+d.qty+' '+g.unit+' of '+g.name.toLowerCase()+
+        (got<d.qty?' — the store is full, '+Math.round(d.qty-got)+' went back on the truck.':'.'),
+        got<d.qty?'warn':'good');
+      S.dock.shift();
+    }
+    // waiting trucks cost you money
+    if(S.dock.length>1) S.money-=(S.dock.length-1)*1.6*H;
+  }
+}
+
+function stepJobs(H){
+  const rate=skill();
+  if(rate<=0.001) return;                      // nobody on the maintenance board
+  for(let i=S.jobs.length-1;i>=0;i--){
+    const j=S.jobs[i];
+    j.prog+=j.rate*H*rate;
+    if(j.prog>=100){ j.done(); S.jobs.splice(i,1); }
+  }
+}
+function refreshPool(){
+  S.crew.pool=[makeWorker(),makeWorker(),makeWorker()];
+  S.crew.poolT=rnd(60,110);
+}
+
+function stepDamage(T,H){
+  const r=S.r;
+  let dmg=0;
+  if(r.temp>1000) dmg+=(r.temp-1000)*0.0025;
+  if(r.press>pressLimit()) dmg+=(r.press-pressLimit())*0.03;
+  if(r.coolant<=0.5&&S.out.thermal>0.5)
+    dmg+=0.04+clamp(S.out.thermal/Math.max(1,coreThermalMax()),0,1)*0.3;
+  if(dmg>0){ r.integ=Math.max(0,r.integ-dmg*T); S.shake=Math.max(S.shake,Math.min(1,dmg*0.3)); }
+  else if(r.temp<760&&r.press<pressLimit()&&S.crew.strike<=0)
+    r.integ=Math.min(100,r.integ+0.03*H*skill());
+  if(r.integ<72) S.rep=clamp(S.rep-(72-r.integ)*0.005*H*(1-U('pr')/100),0,100);
+  if(r.integ<=0||r.temp>=2100) gameOver('meltdown');
+}
+
+/* ---------------------------- player actions --------------------------- */
+function scram(reason){
+  if(S.over) return;
+  S.r.scramT=6; S.r.rods=100; S.st.scrams++;
+  logMsg('SCRAM. All rods driven in'+(reason?' — '+reason:'')+'. Xenon will build up before you can restart.','warn');
+  beep(140,0.25);
+}
+function topUpCoolant(){
+  const want=Math.min(100-S.r.coolant,S.inv.coolant);
+  if(want<=0.1){ logMsg('No makeup water in the warehouse.','warn'); return }
+  S.r.coolant+=want; S.inv.coolant-=want;
+  logMsg('Loop refilled with '+num(want)+' kL of makeup water.','good');
+}
+/* last resort when the store is empty and the loop is draining: raw river water */
+function emergencyFeed(){
+  if(S.r.coolant>30){ logMsg('The loop is not low enough to justify raw river water.','info'); return }
+  S.r.coolant=Math.max(S.r.coolant,65);
+  S.rep=clamp(S.rep-5*(1-U('scrub')/100),0,100);
+  logMsg('Emergency river feed opened. Untreated water in the primary loop — the regulator will hear about this.','warn');
+  beep(300,0.2);
+}
+function replaceAssembly(i){
+  const a=S.core[i];
+  if(S.r.flux>14){ logMsg('Refuelling needs the core near shutdown. Drop flux below 14% first.','warn'); return }
+  if(S.inv.fuel<1){ logMsg('No fuel assemblies in store. Order some from Logistics.','warn'); return }
+  S.inv.fuel--; a.burn=0; a.on=true;
+  S.r.xe+=3;
+  logMsg('Assembly '+(i+1)+' replaced. Fresh fuel, full reactivity.','good');
+}
+function addJob(name,rate,done,tag){
+  if(S.jobs.some(j=>j.tag===tag)){ logMsg('That work is already on the maintenance board.','warn'); return false }
+  if(!onDuty('maint').length){ logMsg('Nobody is on maintenance. Put a worker on that duty in the Supply yard.','warn'); return false }
+  S.jobs.push({name,rate,prog:0,done,tag}); return true;
+}
+function repairPump(i){
+  const p=S.pumps[i], cost=Math.round(120+U('pumpt')*4), parts=1;
+  if(S.inv.parts<parts){ logMsg('Need a spare parts kit for that repair.','warn'); return }
+  if(S.money<cost){ logMsg('Not enough cash for the repair.','warn'); return }
+  if(!addJob('Overhaul pump '+(i+1),9,()=>{ p.h=100; logMsg('Pump '+(i+1)+' overhauled — back to full flow.','good') },'p'+i)) return;
+  S.inv.parts-=parts; S.money-=cost;
+}
+function repairTurb(i){
+  const t=S.turbs[i], cost=Math.round(turbCost(t.m)*0.09), parts=2;
+  if(S.inv.parts<parts){ logMsg('Need two parts kits for a turbine overhaul.','warn'); return }
+  if(S.money<cost){ logMsg('Not enough cash for the overhaul.','warn'); return }
+  if(!addJob('Overhaul '+TURBS[t.m].name,6,()=>{ t.h=100; logMsg(TURBS[t.m].name+' overhauled.','good') },'t'+i)) return;
+  S.inv.parts-=parts; S.money-=cost;
+}
+function sealLeak(){
+  if(S.r.leak<=0){ logMsg('No leak to seal.','info'); return }
+  if(S.inv.parts<1){ logMsg('Need a parts kit to seal the loop.','warn'); return }
+  if(!addJob('Seal coolant leak',14,()=>{ S.r.leak=0; logMsg('Coolant leak sealed.','good') },'leak')) return;
+  S.inv.parts--;
+}
+function repairLine(){
+  const cost=Math.round(200+U('line')*6);
+  if(S.money<cost){ logMsg('Not enough cash to re-string the line.','warn'); return }
+  if(S.inv.parts<1){ logMsg('Need a parts kit for switchyard repairs.','warn'); return }
+  if(!addJob('Repair switchyard',11,()=>{ S.grid.lineH=100; S.grid.trip=0; logMsg('Switchyard repaired.','good') },'line')) return;
+  S.money-=cost; S.inv.parts--;
+}
+function overhaulCore(){
+  const cost=Math.round(900+coreThermalMax()*2.5);
+  if(S.r.flux>14){ logMsg('Containment work needs the core near shutdown.','warn'); return }
+  if(S.inv.parts<3){ logMsg('Containment work needs three parts kits.','warn'); return }
+  if(S.money<cost){ logMsg('Not enough cash for containment work.','warn'); return }
+  if(!addJob('Containment repairs',5,()=>{ S.r.integ=Math.min(100,S.r.integ+35); logMsg('Containment repaired. Integrity recovered.','good') },'integ')) return;
+  S.money-=cost; S.inv.parts-=3;
+}
+function order(id,mult){
+  const g=GOODS.find(x=>x.id===id);
+  const qty=g.pack*mult;
+  const cost=Math.round(goodPrice(g)*qty);
+  if(S.money<cost){ logMsg('Not enough cash for that order.','warn'); return }
+  S.money-=cost;
+  S.orders.push({id,qty,eta:g.eta*rnd(0.8,1.2),hold:0,cost});
+  logMsg('Ordered '+qty+' '+g.unit+' of '+g.name.toLowerCase()+' for '+money(cost)+'.','info');
+}
+function buyUpgrade(id){
+  if(upMax(id)) return;
+  const c=upCost(id);
+  if(S.money<c){ logMsg('Not enough cash.','warn'); return }
+  S.money-=c; S.up[id]++;
+  if(id==='core'){ while(S.core.length<U('core')) S.core.push({burn:100,on:true});
+    logMsg('Core expanded to '+U('core')+' positions. The new ones are empty — load fuel.','good'); }
+  else if(id==='loops'){ logMsg('Coolant loop '+U('loops')+' commissioned.','good'); }
+  else logMsg(UPGBY[id].name+' upgraded to '+UPGBY[id].vals[S.up[id]]+UPGBY[id].unit+'.','good');
+  beep(660,0.08);
+}
+function buyTurbine(m){
+  if(S.turbs.length>=8){ logMsg('The turbine hall is full. Eight sets is the limit.','warn'); return }
+  if(S.money<turbCost(m)){ logMsg('Not enough cash.','warn'); return }
+  S.money-=turbCost(m); S.turbs.push({m,h:100,on:true,spin:0});
+  logMsg(TURBS[m].name+' installed — '+mw(TURBS[m].cap)+' of extra capacity.','good');
+}
+function sellTurbine(i){
+  if(S.turbs.length<=1){ logMsg('You need at least one turbine.','warn'); return }
+  const t=S.turbs[i]; S.money+=turbCost(t.m)*0.3*(t.h/100);
+  logMsg(TURBS[t.m].name+' sold for scrap.','info'); S.turbs.splice(i,1);
+}
+function connectTier(i){
+  const T=TIERS[i];
+  if(S.grid.on[i]) return;
+  if(S.rep<T.rep){ logMsg('Need '+T.rep+' reputation before '+T.name+' will sign a contract.','warn'); return }
+  if(S.money<tierCost(i)){ logMsg('Not enough cash to build out to '+T.name+'.','warn'); return }
+  S.money-=tierCost(i); S.grid.on[i]=true; S.grid.fd[i]='main';
+  logMsg('Connected '+T.name+' — '+T.w+' now depend on you for '+mw(T.demand)+'.','good');
+  beep(880,0.1);
+}
+function hireWorker(i){
+  const w=S.crew.pool[i]; if(!w) return;
+  if(crewCount()>=10){ logMsg('Ten on the books is all the site can house.','warn'); return }
+  const fee=hireFee(w);
+  if(S.money<fee){ logMsg('Not enough cash for '+wName(w)+"'s signing fee.",'warn'); return }
+  S.money-=fee;
+  w.duty='rest';
+  S.crew.workers.push(w);
+  S.crew.pool.splice(i,1);
+  logMsg('Hired '+wName(w)+' — '+TRAITBY[w.trait].name.toLowerCase()+', '+money(w.wage)+'/h. Give them a duty.','good');
+  beep(760,0.09);
+}
+function dismissWorker(id){
+  const w=S.crew.workers.find(x=>x.id===id); if(!w) return;
+  S.crew.workers=S.crew.workers.filter(x=>x.id!==id);
+  for(const o of S.crew.workers) o.mood=clamp(o.mood-6,0,100);
+  logMsg('Let '+wName(w)+' go. The rest of the crew took note.','info');
+}
+function setDuty(id,duty){
+  const w=S.crew.workers.find(x=>x.id===id); if(!w) return;
+  w.duty=duty;
+}
+
+/* ---------------------------- random events ---------------------------- */
+const EVENTS=[
+ {id:'quake',name:'Seismic Event',w:()=>1.0,run(){
+   const d=1-U('seis')/100;
+   S.shake=1; S.flash=0.45; beep(90,0.4);
+   S.r.integ=Math.max(0,S.r.integ-rnd(4,14)*d);
+   const n=U('loops'); for(let i=0;i<n;i++) if(chance(0.45*d)) S.pumps[i].h=Math.max(0,S.pumps[i].h-rnd(18,60)*d);
+   if(chance(0.4*d)){ S.r.jam=rnd(8,18); }
+   if(chance(0.5*d)) S.r.leak=Math.max(S.r.leak,rnd(0.06,0.2)*d);
+   return 'Earthquake. The whole island moved — check pumps, containment and the loops.';
+ },kind:'bad'},
+ {id:'leak',name:'Coolant Leak',w:()=>1.1,run(){
+   S.r.leak=Math.max(S.r.leak,rnd(0.07,0.26)); beep(200,0.3);
+   return 'A weld has let go in the primary loop. Coolant is draining — seal it and keep the level up.';
+ },kind:'bad'},
+ {id:'pumpfail',name:'Pump Failure',w:()=>1.2,run(){
+   const n=U('loops'); const i=ri(0,n-1); S.pumps[i].h=rnd(0,12);
+   return 'Coolant pump '+(i+1)+' bearing failure. Heat removal just dropped.';
+ },kind:'bad'},
+ {id:'turbfail',name:'Turbine Trip',w:()=>S.turbs.length?1.0:0,run(){
+   const i=ri(0,S.turbs.length-1); const t=S.turbs[i];
+   t.h=Math.max(0,t.h-rnd(30,70)); if(t.h<22) t.on=false;
+   return TURBS[t.m].name+' tripped on high vibration. Electrical output has fallen.';
+ },kind:'bad'},
+ {id:'cond',name:'Condenser Fouling',w:()=>0.9,run(){
+   S.ev.active.push({id:'cond',name:'Condenser fouled',until:rnd(16,34),coolMul:0.68});
+   return 'Weed and silt in the condenser intake. Your heat sink is 32% weaker until it clears.';
+ },kind:'warn'},
+ {id:'heat',name:'Heatwave',w:()=>0.9,run(){
+   S.ev.active.push({id:'heat',name:'Heatwave',until:rnd(30,60),demandMul:1.16,onEnd(){S.r.inlet=34}});
+   S.r.inlet=52;
+   return 'Heatwave. River water is warm, cooling is poorer, and everyone has the air conditioning on.';
+ },kind:'warn'},
+ {id:'storm',name:'Storm Front',w:()=>tiersOn()>1?1.1:0.3,run(){
+   S.grid.lineH=Math.max(0,S.grid.lineH-rnd(25,70));
+   if(S.grid.lineH<=0){ S.grid.trip=rnd(4,10); }
+   return 'Storm front over the corridor. Line damage'+(S.grid.trip>0?' — the main line is down.':'.');
+ },kind:'bad'},
+ {id:'surge',name:'Demand Surge',w:()=>tiersOn()>2?1.2:0.2,run(){
+   S.ev.active.push({id:'surge',name:'Demand surge',until:rnd(8,18),demandMul:rnd(1.25,1.5)});
+   return 'Cold snap across the network. Demand has spiked — find more megawatts or lose satisfaction.';
+ },kind:'warn'},
+ {id:'xenon',name:'Xenon Transient',w:()=>S.r.flux>30?0.8:0.1,run(){
+   S.r.xe+=rnd(40,90);
+   return 'Xenon transient in the core. Reactivity is being eaten — pull rods or ride it out.';
+ },kind:'warn'},
+ {id:'jam',name:'Rod Drive Jam',w:()=>0.8,run(){
+   S.r.jam=rnd(10,22);
+   return 'Control rod drive jammed. You cannot move the rods for a while — manage with the pumps.';
+ },kind:'bad'},
+ {id:'cyber',name:'SCADA Intrusion',w:()=>tiersOn()>3?0.9:0.15,run(){
+   S.r.noise=rnd(20,45);
+   return 'Someone is inside the SCADA network. Instrument readings cannot be trusted until it is purged.';
+ },kind:'bad'},
+ {id:'strike',name:'Walkout',w:()=>(crewCount()&&avgMood()<40)?1.4:0,run(){
+   S.crew.strike=rnd(14,30);
+   for(const w of S.crew.workers) w.fat=Math.max(0,w.fat-20);
+   return 'The crew has walked out over conditions. Nobody is on the panel, the board or the gate.';
+ },kind:'bad'},
+ {id:'delay',name:'Delivery Problem',w:()=>S.orders.length?1.1:0,run(){
+   const or=pick(S.orders);
+   if(chance(0.3)){ S.orders.splice(S.orders.indexOf(or),1);
+     return 'A truck rolled on the mountain road. That '+GOODS.find(g=>g.id===or.id).name.toLowerCase()+' order is lost.'; }
+   or.hold=rnd(8,20);
+   return 'Road closure on the supply route. One delivery is held up for '+num(or.hold)+' hours.';
+ },kind:'warn'},
+ {id:'inspect',name:'Regulator Inspection',w:()=>0.9,run(){
+   if(S.r.integ<80||S.rep<40||S.r.temp>950){
+     const fine=Math.round(400+S.st.earned*0.012+U('line')*40);
+     S.money-=fine; S.rep=clamp(S.rep-4*(1-U('pr')/100),0,100);
+     return 'Surprise inspection. Findings on containment and operations — fined '+money(fine)+'.';
+   }
+   S.rep=clamp(S.rep+6,0,100);
+   return 'Surprise inspection passed with commendation. Reputation up.';
+ },kind:'info'},
+ {id:'recall',name:'Fuel Recall',w:()=>liveAssy()>2?0.7:0,run(){
+   const live=S.core.filter(a=>a.on&&a.burn<100); const a=pick(live); a.burn=100;
+   return 'Manufacturing defect found in one assembly batch. One position is now scrap.';
+ },kind:'warn'},
+ {id:'error',name:'Human Error',w:()=>2.0/(1+dutyPower('ctrl')*0.5),run(){
+   const ops=onDuty('ctrl');
+   const d=rnd(-16,16); S.r.rods=clamp(S.r.rods+d,0,100);
+   if(!ops.length) return 'Nobody was on the panel. The rods drifted '+num(Math.abs(d))+'% '+(d>0?'in':'out')+' before anyone noticed.';
+   const w=pick(ops); w.mood=clamp(w.mood-6,0,100);
+   return wName(w)+' fat-fingered the rod controller — rods moved '+num(Math.abs(d))+'% '+(d>0?'in':'out')+'.';
+ },kind:'warn'},
+ {id:'blackout',name:'Loss of Offsite Power',w:()=>tiersOn()>2?0.7:0.1,run(){
+   S.ev.active.push({id:'blackout',name:'Loss of offsite power',until:rnd(8,16),genMul:0.85});
+   const gen=S.out.gross>0.0005;
+   return 'Loss of offsite power — the station transformer is dead. '+
+     (gen?'The unit is carrying its own house load through the UAT. If it trips, '+(U('diesel')>0?'the diesels must pick up the safety bus.':'there are no diesels to fall back on.')
+        :U('diesel')>0?'The emergency diesels have started on the safety bus.':'No diesels fitted — the pumps are coasting down. Cool the core NOW.');
+ },kind:'bad'},
+ {id:'grant',name:'Government Grant',w:()=>S.rep>62?1.0:0,run(){
+   const g=Math.round(2000+S.st.earned*0.03+U('line')*300);
+   S.money+=g;
+   return 'Energy ministry grant awarded on the strength of your record: '+money(g)+'.';
+ },kind:'good'},
+ {id:'contract',name:'Spot Contract',w:()=>S.grid.sat>93?1.0:0,run(){
+   const g=Math.round(600+S.out.served*rateNow()*4);
+   S.money+=g;
+   return 'A neighbouring utility bought '+money(g)+' of spot power from you. Nice work.';
+ },kind:'good'},
+ {id:'flood',name:'River Flood',w:()=>tiersOn()>1?0.7:0.2,run(){
+   const d=1-U('seis')/160;
+   const n=U('loops'); for(let i=0;i<n;i++) if(chance(0.3)) S.pumps[i].h=Math.max(0,S.pumps[i].h-rnd(10,40)*d);
+   S.r.inlet=42; S.ev.active.push({id:'flood',name:'Flooded intake',until:rnd(14,28),coolMul:0.82,onEnd(){S.r.inlet=34}});
+   return 'The river is over the intake screens. Flooding in the pump house.';
+ },kind:'bad'}
+];
+const EVBY={}; EVENTS.forEach(e=>EVBY[e.id]=e);
+
+function stepEvents(T,H){
+  for(let i=S.ev.active.length-1;i>=0;i--){
+    const e=S.ev.active[i]; e.until-=H;
+    if(e.until<=0){ if(e.onEnd) e.onEnd(); S.ev.active.splice(i,1);
+      logMsg(e.name+' has cleared.','good'); }
+  }
+  if(S.startup){ S.ev.next=rnd(30,50); return }   // nothing goes wrong before you first sync
+  S.ev.next-=H;
+  if(S.ev.next<=0){
+    // a bigger grid draws more trouble; a well-staffed control room heads some of it off
+    S.ev.next=rnd(70,170)*(1+dutyPower('ctrl')*0.05)/(1+tiersOn()*0.06);
+    fireEvent();
+  }
+}
+function fireEvent(forceId){
+  let e;
+  if(forceId) e=EVBY[forceId];
+  else{
+    const pool=EVENTS.filter(x=>x.w()>0&&!evActive(x.id));
+    if(!pool.length) return;
+    let tot=0; pool.forEach(x=>tot+=x.w());
+    let r=Math.random()*tot;
+    for(const x of pool){ r-=x.w(); if(r<=0){ e=x; break } }
+    e=e||pool[0];
+  }
+  if(!e) return;
+  const msg=e.run();
+  S.st.events++;
+  logMsg(msg,e.kind);
+  if(e.kind==='bad'){ S.flash=Math.max(S.flash,0.5); beep(170,0.2) } else if(e.kind==='good') beep(700,0.12);
+}
+
+/* ---------------------------- endings ---------------------------------- */
+function gameOver(kind){
+  if(S.over) return;
+  S.over=kind; S.flash=1.4; S.shake=1.4; S.speed=1; beep(70,1.1);
+  if(kind==='meltdown'){
+    logMsg('CORE MELTDOWN. Containment has failed. The plant is lost.','bad');
+    S.view='grid';
+  } else logMsg('Bankrupt. The receivers have taken the keys.','bad');
+  setTimeout(showEnd,kind==='meltdown'?2600:600);
+}
+function winGame(){
+  S.win=true; S.ending='world';
+  logMsg('THE WORLD IS ON YOUR GRID. Three days of stable supply at full load. Neuclify complete.','good');
+  showWin();
+}
+/* ============================ 4. PIXEL RENDER ============================ */
+/* The canvas is a fixed 480 px wide and its height follows the stage, so each scene fills
+   the space instead of sitting in a letterbox. Scenes are laid out from the floor up and
+   any extra height becomes ceiling, roof or sky. They carry no figures that the HUD or
+   the side panel already show: they are pictures of the plant, not a second dashboard. */
+let AT=0;                                    // animation clock — stops while paused
+const STARS=[]; for(let i=0;i<110;i++) STARS.push({x:Math.random(),y:Math.random(),b:rnd(0.3,1)});
+let ctrlHit=null;
+const coreHit=[], turbHit=[], gridHit=[];
+
+function fitCanvas(){
+  const el=$('canwrap'); if(!el||!el.getBoundingClientRect) return;
+  const r=el.getBoundingClientRect();
+  if(!(r.width>40&&r.height>40)) return;
+  const h=clamp(Math.round(VW*r.height/r.width),240,420);
+  if(h!==VH||cv.height!==h||cv.width!==VW){ VH=h; cv.width=VW; cv.height=VH; }
+}
+
+function sensor(v,amp){ // instrument reading, corrupted while SCADA is compromised
+  if(S.r.noise<=0) return v;
+  return v*(1+Math.sin(S.t*7.3+v)*0.11)+Math.sin(S.t*13.1)*(amp||0.6);
+}
+function nightF(){ // 0 day .. 1 night
+  const h=S.hours;
+  if(h<5) return 1; if(h<7.5) return 1-(h-5)/2.5;
+  if(h<17.5) return 0; if(h<20.5) return (h-17.5)/3; return 1;
+}
+
+/* ---- drawing primitives ------------------------------------------------ */
+function line(x0,y0,x1,y1,c){
+  x0=Math.round(x0);y0=Math.round(y0);x1=Math.round(x1);y1=Math.round(y1);
+  const dx=Math.abs(x1-x0), dy=-Math.abs(y1-y0), sx=x0<x1?1:-1, sy=y0<y1?1:-1;
+  let e=dx+dy; ctx.fillStyle=c;
+  for(let n=0;n<3000;n++){
+    ctx.fillRect(x0,y0,1,1);
+    if(x0===x1&&y0===y1) break;
+    const e2=2*e; if(e2>=dy){e+=dy;x0+=sx} if(e2<=dx){e+=dx;y0+=sy}
+  }
+}
+function disc(cx,cy,r,c){
+  ctx.fillStyle=c;
+  for(let y=-r;y<=r;y++){ const w=Math.floor(Math.sqrt(r*r-y*y+r*0.6)); ctx.fillRect(Math.round(cx-w),Math.round(cy+y),w*2+1,1) }
+}
+function ring(cx,cy,r,c){
+  for(let a=0;a<Math.max(16,r*8);a++){ const t=a/Math.max(16,r*8)*Math.PI*2;
+    px(Math.round(cx+Math.cos(t)*r),Math.round(cy+Math.sin(t)*r),1,1,c) }
+}
+function headInset(yy,h,ry,r){
+  let t=0;
+  if(yy<ry) t=(ry-yy-0.5)/ry; else if(yy>=h-ry) t=(yy-(h-ry)+0.5)/ry;
+  return t>0?Math.round(r*(1-Math.sqrt(Math.max(0,1-t*t)))):0;
+}
+/* a vertical pressure vessel with elliptical heads, shaded like a cylinder */
+function vessel(x,y,w,h,ry,base,light,dark,edge){
+  const r=w/2; let prev=null;
+  for(let yy=0;yy<h;yy++){
+    const ins=headInset(yy,h,ry,r), X=Math.round(x+ins), Wd=Math.round(w-ins*2), Y=Math.round(y+yy);
+    if(Wd>0){
+      px(X,Y,Wd,1,base);
+      if(Wd>3){ px(X+Math.round(Wd*0.16),Y,Math.max(1,Math.round(Wd*0.15)),1,light);
+                const dw=Math.max(1,Math.round(Wd*0.26)); px(X+Wd-dw,Y,dw,1,dark); }
+      if(edge){
+        px(X,Y,1,1,edge); px(X+Wd-1,Y,1,1,edge);
+        if(yy===0||yy===h-1) px(X,Y,Wd,1,edge);
+        else if(prev!==null&&Math.abs(prev-ins)>1){ const a=Math.min(prev,ins),b=Math.max(prev,ins);
+          px(Math.round(x+a),Y,b-a,1,edge); px(Math.round(x+w-b),Y,b-a,1,edge); }
+      }
+    }
+    prev=ins;
+  }
+}
+/* fill rows y0..y1 of a vessel's interior profile; half=-1/1 fills one side only */
+function vband(x,y,w,h,ry,y0,y1,c,half){
+  const r=w/2;
+  for(let Y=Math.max(Math.round(y0),y);Y<Math.min(Math.round(y1),y+h);Y++){
+    const ins=headInset(Y-y,h,ry,r), Wd=Math.round(w-ins*2);
+    if(Wd<=0) continue;
+    const X=Math.round(x+ins);
+    if(!half) px(X,Y,Wd,1,c);
+    else if(half<0) px(X,Y,Math.ceil(Wd/2),1,c);
+    else px(X+Math.floor(Wd/2),Y,Math.ceil(Wd/2),1,c);
+  }
+}
+/* the same lying on its side: generators, turbine casings, condensers, tankers */
+function hvessel(x,y,w,h,rx,base,light,dark,edge){
+  const r=h/2; let prev=null;
+  for(let xx=0;xx<w;xx++){
+    const ins=headInset(xx,w,rx,r), Y=Math.round(y+ins), Hh=Math.round(h-ins*2), X=Math.round(x+xx);
+    if(Hh>0){
+      px(X,Y,1,Hh,base);
+      if(Hh>3){ px(X,Y+Math.round(Hh*0.14),1,Math.max(1,Math.round(Hh*0.16)),light);
+                const dh=Math.max(1,Math.round(Hh*0.26)); px(X,Y+Hh-dh,1,dh,dark); }
+      if(edge){
+        px(X,Y,1,1,edge); px(X,Y+Hh-1,1,1,edge);
+        if(xx===0||xx===w-1) px(X,Y,1,Hh,edge);
+        else if(prev!==null&&Math.abs(prev-ins)>1){ const a=Math.min(prev,ins),b=Math.max(prev,ins);
+          px(X,Math.round(y+a),1,b-a,edge); px(X,Math.round(y+h-b),1,b-a,edge); }
+      }
+    }
+    prev=ins;
+  }
+}
+/* pipework along an axis-aligned polyline, and particles travelling along it */
+function polyLen(p){ let L=0; for(let i=1;i<p.length;i++) L+=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]); return L }
+function polyAt(p,t){
+  let d=(((t%1)+1)%1)*polyLen(p);
+  for(let i=1;i<p.length;i++){
+    const s=Math.hypot(p[i][0]-p[i-1][0],p[i][1]-p[i-1][1]);
+    if(d<=s){ const f=s?d/s:0; return [p[i-1][0]+(p[i][0]-p[i-1][0])*f, p[i-1][1]+(p[i][1]-p[i-1][1])*f] }
+    d-=s;
+  }
+  return p[p.length-1];
+}
+function pipe(p,w,c,edge){
+  const h=Math.floor(w/2);
+  if(edge) for(let i=1;i<p.length;i++){
+    const [x0,y0]=p[i-1],[x1,y1]=p[i], X=Math.min(x0,x1), Y=Math.min(y0,y1);
+    if(y0===y1) px(X-h-1,Y-h-1,Math.abs(x1-x0)+w+2,w+2,edge);
+    else if(x0===x1) px(X-h-1,Y-h-1,w+2,Math.abs(y1-y0)+w+2,edge);
+  }
+  for(let i=1;i<p.length;i++){
+    const [x0,y0]=p[i-1],[x1,y1]=p[i], X=Math.min(x0,x1), Y=Math.min(y0,y1);
+    if(y0===y1) px(X-h,Y-h,Math.abs(x1-x0)+w,w,c);
+    else if(x0===x1) px(X-h,Y-h,w,Math.abs(y1-y0)+w,c);
+    else line(x0,y0,x1,y1,c);
+  }
+}
+function flow(p,n,speed,c,size){
+  if(speed<=0.001) return;
+  const s=size||1;
+  for(let i=0;i<n;i++){ const q=polyAt(p,AT*speed+i/n); px(Math.round(q[0]-s/2),Math.round(q[1]-s/2),s,s,c) }
+}
+/* a lattice transmission tower; returns the three conductor attachment points */
+function pylon(x,gy,h,c,dark){
+  const bw=Math.max(4,Math.round(h*0.3)), tw=2;
+  for(let i=0;i<=h;i++){
+    const w=Math.round(bw-(bw-tw)*(i/h)), hw=w>>1;
+    px(x-hw,gy-i,1,1,c); px(x+hw,gy-i,1,1,c);
+    if(i%5===0&&i<h-2&&hw>1) line(x-hw,gy-i,x+hw,gy-i-4,dark);
+  }
+  const a1=gy-h+Math.round(h*0.15), a2=gy-h+Math.round(h*0.36), arm=Math.round(h*0.34);
+  px(x-arm,a1,arm*2+1,1,c); px(x-Math.round(arm*0.75),a2,Math.round(arm*1.5)+1,1,c);
+  px(x,gy-h-2,1,3,c);
+  px(x-arm,a1+1,1,2,'#c9d2d9'); px(x+arm,a1+1,1,2,'#c9d2d9'); px(x+Math.round(arm*0.75),a2+1,1,2,'#c9d2d9');
+  return [[x-arm,a1+3],[x+arm,a1+3],[x+Math.round(arm*0.75),a2+3]];
+}
+function catenary(x0,y0,x1,y1,sag,c){
+  const n=Math.max(3,Math.abs(x1-x0)>>2); let a=x0,b=y0;
+  for(let i=1;i<=n;i++){ const t=i/n, X=x0+(x1-x0)*t, Y=y0+(y1-y0)*t+sag*4*t*(1-t); line(a,b,X,Y,c); a=X; b=Y }
+}
+function trefoil(x,y){
+  px(x,y,7,7,'#f2c23a'); rect(x,y,7,7,'#6b5414');
+  px(x+3,y+3,1,1,'#1d1d1d'); px(x+1,y+1,2,2,'#1d1d1d'); px(x+4,y+1,2,2,'#1d1d1d'); px(x+2,y+4,3,2,'#1d1d1d');
+}
+/* the sky above an outdoor scene, with sun or moon, stars and drifting cloud */
+function skyFill(y0,y1){
+  const nf=nightF(), hgt=y1-y0;
+  const day=['#4b82ab','#5f93ba','#78a8c9','#94bcd6','#aecddf'];
+  const dusk=['#232548','#3b3460','#634566','#94586a','#c4776a'];
+  const night=['#060c1a','#091226','#0d1830','#121f3a','#172745'];
+  const pal=nf>0.7?night:nf>0.18?dusk:day;
+  for(let i=0;i<pal.length;i++) px(0,y0+Math.round(hgt*i/pal.length),VW,Math.ceil(hgt/pal.length)+1,pal[i]);
+  if(nf>0.4) for(const s of STARS){ ctx.globalAlpha=Math.min(1,(nf-0.4)*1.7)*s.b;
+    px(Math.round(s.x*VW),Math.round(y0+s.y*hgt*0.85),1,1,'#dff0f6'); }
+  ctx.globalAlpha=1;
+  if(nf<0.72){
+    const t=clamp((S.hours-6)/12,0,1), sx=40+t*(VW-80), sy=y1-12-Math.sin(t*Math.PI)*(hgt-28);
+    ctx.globalAlpha=0.18*(1-nf); disc(sx,sy,10,'#ffe9a0'); ctx.globalAlpha=1-nf*0.6; disc(sx,sy,5,'#fff2c0'); ctx.globalAlpha=1;
+  } else { const mx=VW-80, my=y0+Math.min(24,hgt*0.3); disc(mx,my,5,'#dfe7ee'); disc(mx+3,my-2,4,pal[0]) }
+  if(nf<0.75) for(let i=0;i<5;i++){
+    const x=((i*137+AT*(1.5+i*0.4))%(VW+90))-45, y=y0+8+((i*41)%Math.max(10,Math.round(hgt*0.45)));
+    ctx.globalAlpha=0.5*(1-nf);
+    px(x,y,26,4,'#eef3f6'); px(x+5,y-3,14,3,'#eef3f6'); px(x+16,y-1,10,3,'#eef3f6');
+  }
+  ctx.globalAlpha=1;
+}
+
+/* ---- people ------------------------------------------------------------- */
+const SKIN=['#d7a884','#a9754f','#73513a','#efc39c','#8d5f42','#c69272'];
+const HAIR=['#2b2119','#4a3526','#6b4a2a','#8a8070','#1d2228','#5b3a2e','#b07a3a'];
+const SHIRTS=['#2e6b8f','#c2742b','#4a7a52','#8a4a6b','#4b5a8a','#8a7a3a'];
+const wSkin=w=>SKIN[w.id%SKIN.length];
+const wHair=w=>HAIR[(w.id*3)%HAIR.length];
+const wShirt=w=>SHIRTS[(w.id*5)%SHIRTS.length];
+/* an operator seen from behind, sat at a console */
+function seatedWorker(x,y,w,busy){
+  const bob=Math.round(Math.sin(AT*1.6+w.ph)*0.6);
+  const lean=busy&&Math.sin(AT*2.2+w.ph)>0.72?1:0, o=bob+lean;
+  px(x-2,y+10,12,12,'#1b232a'); rect(x-2,y+10,12,12,'#2b3742'); px(x+3,y+22,2,3,'#2b3742');  // chair
+  px(x-1,y+7+o,10,8,wShirt(w)); px(x-1,y+7+o,10,1,'#00000033');                               // shoulders
+  px(x+1,y+1+o,6,7,wSkin(w)); px(x+1,y+o,6,4,wHair(w)); px(x,y+2+o,1,3,wHair(w)); px(x+7,y+2+o,1,3,wHair(w));
+  if(lean) px(x-2,y+9+o,2,3,wSkin(w));
+  if(w.fat>70&&Math.floor(AT*0.8)%4===0) text('Z',x+9,y-4+bob,'#7d9389',1);
+}
+/* a worker walking side-on; hard hat and hi-vis on the yard and maintenance crews */
+function walker(x,y,w,dir,carry,hivis){
+  const step=Math.floor(AT*5+w.ph*3)%2;
+  px(x+1,y+1,5,5,wSkin(w));
+  if(hivis){ px(x,y-1,7,3,'#f2c23a'); px(x+(dir>0?5:-1),y+1,2,1,'#f2c23a') } else px(x+1,y,5,3,wHair(w));
+  px(x,y+6,7,7,hivis?'#d8d43a':wShirt(w)); if(hivis) px(x,y+9,7,1,'#c9d2d9');
+  px(x+(step?0:2),y+13,2,3,'#20262c'); px(x+(step?4:3),y+13,2,3,'#20262c');
+  if(carry){ px(dir>0?x+6:x-4,y+5,5,5,carry); rect(dir>0?x+6:x-4,y+5,5,5,'#00000055') }
+  else px(dir>0?x+7:x-1,y+7,1,4,wSkin(w));
+}
+/* a lorry; cab on the left unless flipped. y is the road surface under the wheels */
+function lorry(x,y,type,moving,loadF,flip){
+  if(flip){ ctx.save(); ctx.translate(x*2+52,0); ctx.scale(-1,1) }
+  const cab=type==='fuel'?'#3d6b4f':type==='coolant'?'#2e5f86':type==='food'?'#a7472f':'#6b5aa0';
+  if(type==='coolant'){
+    hvessel(x+15,y-15,36,11,5,'#c9d2d9','#eef3f6','#8f9aa3','#4a545c');
+    px(x+15,y-5,36,2,'#2b3238'); px(x+30,y-17,6,2,'#8f9aa3');
+  } else if(type==='parts'){
+    px(x+15,y-7,36,2,'#5a4632');
+    const n=Math.round(clamp(loadF,0,1)*6);
+    for(let k=0;k<n;k++){ const bx=x+17+(k%3)*11, by=y-13-Math.floor(k/3)*6;
+      px(bx,by,10,6,'#8a6a3e'); rect(bx,by,10,6,'#4a3a22'); px(bx+4,by,1,6,'#c9b23a') }
+  } else {
+    px(x+15,y-19,36,14,type==='fuel'?'#e6e2d2':'#d9dde0'); rect(x+15,y-19,36,14,'#5a6168');
+    for(let k=1;k<6;k++) px(x+15+k*6,y-18,1,12,'#c2c6c8');
+    if(type==='fuel') trefoil(x+29,y-16); else { px(x+17,y-16,32,2,'#3f7fa6'); px(x+15,y-22,7,3,'#9aa6ae') }
+  }
+  px(x+1,y-15,14,10,cab); px(x+1,y-15,14,1,'#ffffff33');
+  px(x+3,y-13,6,4,'#9cc8e8'); px(x+1,y-5,14,2,'#2b3238'); px(x+13,y-18,2,6,'#8a949c');
+  const sp=moving?Math.floor(AT*10)%2:0;
+  for(const wx of [x+3,x+21,x+39,x+45]){ px(wx,y-3,5,3,'#0e1316'); px(wx+2,y-2,1,1,sp?'#5a646c':'#2a3238') }
+  if(flip) ctx.restore();
+}
+
+function render(dt){
+  if(!S.paused&&!ovOpen&&!S.over) AT+=dt*Math.min(S.speed,2); else if(S.over) AT+=dt;
+  ctx.save();
+  if(SET.shake&&S.shake>0.02){ const s=S.shake*3; ctx.translate(Math.round(rnd(-s,s)),Math.round(rnd(-s,s))) }
+  px(-8,-8,VW+16,VH+16,P.black);
+  const v=S.view;
+  if(v==='ctrl') drawCtrl(); else if(v==='core') drawCore();
+  else if(v==='turb') drawTurb(); else if(v==='grid') drawGrid();
+  else if(v==='logi') drawLogi(); else drawRnd();
+  ctx.restore();
+}
+
+
+/* ======================= VIEW: MAIN CONTROL ROOM ======================= */
+/* A real control room has no window onto the reactor: the plant is read from the board.
+   Annunciator windows along the top, rod position indicators and recorders on the
+   reactor section, a lit mimic of the whole plant in the middle, generator meters and a
+   synchroscope on the electrical section, and the operators' consoles in front. */
+function histPeak(){ let m=0.01; for(const v of S.hist.out) if(v>m) m=v; for(const v of S.hist.dem) if(v>m) m=v; return m }
+function stripChart(x,y,w,h,series){
+  px(x-2,y-2,w+4,h+4,'#2a332e'); rect(x-2,y-2,w+4,h+4,'#1b221e');
+  px(x,y,w,h,'#d8d1b2');
+  const off=Math.floor(AT*4)%6;
+  for(let gx=x+6-off;gx<x+w;gx+=6) px(gx,y,1,h,'#c7bf9a');
+  for(let gy=y+h-1;gy>y;gy-=Math.max(5,Math.floor(h/4))) px(x,gy,w,1,'#c7bf9a');
+  for(const s of series){
+    const a=s.data; if(!a||a.length<2) continue;
+    let prev=null;
+    for(let i=0;i<a.length;i++){
+      const xx=x+Math.round(i/(a.length-1)*(w-3)), yy=y+h-2-Math.round(clamp(a[i]/s.max,0,1)*(h-4));
+      if(prev) line(prev[0],prev[1],xx,yy,s.c); prev=[xx,yy];
+    }
+    px(prev[0]-1,prev[1]-1,3,3,s.c);
+  }
+  px(x+w-1,y,1,h,'#9b9273');
+}
+function edgewise(x,y,h,f,red){
+  px(x,y,9,h,'#1e2527'); rect(x,y,9,h,'#121719');
+  px(x+2,y+2,5,h-4,'#e6e1cc');
+  for(let t=0;t<=10;t++) px(x+2,y+2+Math.round((h-5)*t/10),t%5?2:3,1,'#4a4a40');
+  if(red!=null){ const ry=y+2+Math.round((h-5)*(1-red)); px(x+6,y+2,1,Math.max(0,ry-y-2),'#d0574d') }
+  const py=y+2+Math.round((h-5)*(1-clamp(f,0,1)));
+  px(x+1,py,7,1,'#1d1d1d'); px(x+6,py-1,2,3,'#c0392b');
+}
+function roundMeter(cx,cy,r,ang,face){
+  disc(cx,cy,r+1,'#121719'); disc(cx,cy,r,face||'#e6e1cc');
+  for(let a=-135;a<=135;a+=27){ const t=a*Math.PI/180;
+    px(cx+Math.round(Math.sin(t)*(r-1)),cy-Math.round(Math.cos(t)*(r-1)),1,1,'#4a4a40') }
+  line(cx,cy,cx+Math.round(Math.sin(ang)*(r-2)),cy-Math.round(Math.cos(ang)*(r-2)),'#c0392b');
+  px(cx-1,cy-1,2,2,'#1d1d1d');
+}
+function lamp(x,y,on,c){ px(x,y,4,4,'#151a1c'); px(x+1,y+1,2,2,on?c:'#3a403c'); if(on){ ctx.globalAlpha=0.25; px(x-1,y-1,6,6,c); ctx.globalAlpha=1 } }
+function clockFace(cx,cy,r){
+  disc(cx,cy,r+1,'#2b3742'); disc(cx,cy,r,'#e8e4d6');
+  for(let k=0;k<12;k++){ const t=k/12*Math.PI*2; px(cx+Math.round(Math.sin(t)*(r-1)),cy-Math.round(Math.cos(t)*(r-1)),1,1,'#4a4a40') }
+  const hh=(S.hours%12)/12*Math.PI*2, mm=(S.hours%1)*Math.PI*2;
+  line(cx,cy,cx+Math.round(Math.sin(hh)*(r-4)),cy-Math.round(Math.cos(hh)*(r-4)),'#1d1d1d');
+  line(cx,cy,cx+Math.round(Math.sin(mm)*(r-2)),cy-Math.round(Math.cos(mm)*(r-2)),'#1d1d1d');
+}
+function annunciatorBand(x,y,w){
+  const cols=Math.floor(w/8), rows=3, total=cols*rows, lit={};
+  for(const a of alarmList()){ let h=7; for(const ch of a.s) h=(h*31+ch.charCodeAt(0))%9973; lit[h%total]=a.k }
+  px(x-1,y-1,cols*8+1,rows*6+1,'#262e29');
+  for(let i=0;i<total;i++){
+    const cx=x+(i%cols)*8, cy=y+Math.floor(i/cols)*6, k=lit[i];
+    if(!k){ px(cx,cy,7,5,'#7f8b80'); px(cx,cy,7,1,'#959f94'); continue }
+    const c=k==='r'?(Math.floor(AT*4)%2?'#ff7a6e':'#b2392f'):k==='a'?'#ffd27a':'#9ccfff';
+    px(cx,cy,7,5,c); ctx.globalAlpha=0.22; px(cx-1,cy-1,9,7,c); ctx.globalAlpha=1;
+  }
+}
+function boardReactor(x,y,w,h){
+  const r=S.r, withdrawn=1-r.rods/100;
+  // rod position indicators: one column of lamps per rod bank, a red rod-bottom lamp beneath
+  for(let b=0;b<8;b++){
+    const bx=x+3+b*6;
+    px(bx-1,y,5,34,'#1b221e');
+    const lit=Math.round(withdrawn*9);
+    for(let k=0;k<9;k++){ const on=k<lit;
+      px(bx,y+28-k*3,3,2,on?(r.jam>0&&Math.floor(AT*4)%2?'#ffb23a':'#7cf08f'):'#2c3530') }
+    px(bx,y+31,3,2,r.rods>=99?'#ff5a4e':'#3a2a28');
+  }
+  // neutron flux recorder
+  stripChart(x+56,y+1,w-58,32,[{data:S.hist.flux,max:160,c:'#c0392b'}]);
+  // edgewise meters: core temperature, pressurizer pressure, loop level
+  const my=y+42, mh=Math.max(24,h-46);
+  edgewise(x+6,my,mh,sensor(r.temp,8)/1300,1000/1300);
+  edgewise(x+20,my,mh,sensor(r.press,2)/(pressLimit()*1.25),1/1.25);
+  edgewise(x+34,my,mh,r.coolant/100,null);
+  // pressurizer heater and spray lamps, rod motion lamps
+  lamp(x+52,my+2,r.temp>150,'#ffb23a'); lamp(x+58,my+2,r.vent>0,'#9ccfff');
+  lamp(x+52,my+9,r.scramT>0,'#ff5a4e'); lamp(x+58,my+9,r.jam>0,'#ffb23a');
+  // rod drive hand switch
+  px(x+70,my+2,24,14,'#2a332e'); rect(x+70,my+2,24,14,'#1b221e');
+  const ang=(r.rods/100-0.5)*1.6;
+  disc(x+82,my+9,3,'#111'); line(x+82,my+9,x+82+Math.round(Math.sin(ang)*6),my+9-Math.round(Math.cos(ang)*6),'#d8d1b2');
+}
+function boardMimic(x,y,w,h){
+  const r=S.r, hot=r.temp>150?heatColor(r.temp):'#4f7f9a';
+  px(x,y,w,h,'#18221e'); rect(x,y,w,h,'#2b3530');
+  const cy=y+Math.round(h*0.36), by=y+Math.round(h*0.78);
+  const pf=pumpFlow(), stm=clamp(S.out.gross/Math.max(0.001,turbCapRaw()),0,1);
+  const sp=0.12+0.6*pf, ss=0.1+0.7*stm;
+  // reactor vessel symbol with the core glowing at power
+  const rx=x+14;
+  vessel(rx,cy-18,16,40,6,'#8ea2b3','#b8c6cf','#62737f','#2b3238');
+  ctx.globalAlpha=clamp(r.flux/110,0,0.9); px(rx+4,cy-2,8,12,heatColor(r.temp)); ctx.globalAlpha=1;
+  // steam generator and pressurizer symbols
+  const gx=x+62;
+  vessel(gx,cy-26,14,52,6,'#8ea2b3','#b8c6cf','#62737f','#2b3238');
+  vessel(x+42,cy-24,6,20,3,'#8ea2b3','#b8c6cf','#62737f','#2b3238');
+  // reactor coolant pump symbol
+  const pxp=x+46, pyp=by;
+  // primary loop
+  const hotLeg=[[rx+16,cy+2],[gx,cy+2]];
+  const coldLeg=[[gx+7,cy+26],[gx+7,by],[pxp+4,by],[rx+22,by],[rx+22,cy+12],[rx+16,cy+12]];
+  pipe(hotLeg,2,hot); pipe(coldLeg,2,'#4f86ad');
+  pipe([[x+45,cy-4],[x+45,cy+2]],1,hot);
+  ring(pxp,pyp,4,'#cfe6dc'); disc(pxp,pyp,3,pf>0.02?'#7cf08f':'#3a403c');
+  flow(hotLeg,3,sp,'#ffe0b0'); flow(coldLeg,5,sp,'#bfe3ff');
+  // main steam to the turbine, exhaust to the condenser, feedwater back
+  const tx=x+100, tw=Math.min(54,Math.round(w*0.26));
+  const steam=[[gx+7,cy-26],[gx+7,cy-32],[tx,cy-32],[tx,cy-8]];
+  pipe(steam,2,'#d9e2e8');
+  px(tx-3,cy-34,7,5,stm>0.01?'#d9e2e8':'#55615b');                          // stop valve
+  for(let k=0;k<16;k++){ const hh=Math.round(4+k*tw/52); px(tx+Math.round(k*tw/16),cy-hh,Math.ceil(tw/16)+1,hh*2,'#8ea2b3') }
+  px(tx,cy-1,tw,2,'#5b6b62');
+  const cdx=tx+Math.round(tw*0.3);
+  px(cdx,by-12,Math.round(tw*0.6),10,'#4f6a7a'); rect(cdx,by-12,Math.round(tw*0.6),10,'#2b3530');
+  pipe([[cdx+Math.round(tw*0.3),cy+Math.round(tw/4)],[cdx+Math.round(tw*0.3),by-12]],2,'#d9e2e8');
+  const fw=[[cdx,by-4],[gx+30,by-4],[gx+30,cy+8],[gx+14,cy+8]];
+  pipe(fw,2,'#4f86ad'); ring(gx+30,by-4,3,'#cfe6dc');
+  flow(steam,4,ss,'#ffffff'); flow(fw,4,ss*0.6,'#bfe3ff');
+  // generator, breaker, step-up transformer, line out
+  const gnx=tx+tw+14, out=S.out.gross>0.0005;
+  pipe([[tx+tw,cy],[gnx-6,cy]],1,'#8ea2b3');
+  ring(gnx,cy,6,'#cfe6dc'); text('G',gnx-1,cy-2,'#cfe6dc',1);
+  const bk=gnx+12;
+  pipe([[gnx+6,cy],[bk,cy]],1,out?'#ffe66d':'#55615b');
+  if(out) px(bk,cy-2,5,5,'#ffe66d'); else rect(bk,cy-2,5,5,'#cfe6dc');
+  ring(bk+12,cy,3,'#cfe6dc'); ring(bk+16,cy,3,'#cfe6dc');
+  const live=S.out.served>0, ln=[[bk+5,cy],[bk+9,cy]], ln2=[[bk+19,cy],[x+w-3,cy]];
+  pipe(ln,1,out?'#ffe66d':'#55615b'); pipe(ln2,1,live?'#ffe66d':'#55615b');
+  px(x+w-5,cy-2,1,5,live?'#ffe66d':'#55615b');
+  flow(ln2,3,live?0.6:0,'#fff6c8');
+}
+function boardElectrical(x,y,w,h){
+  const stm=clamp(S.out.gross/Math.max(0.001,turbCapRaw()),0,1), out=S.out.gross>0.0005;
+  // power sent out (green) against what the energised feeders ask for (orange). Above the
+  // orange line the surplus is sold on the spot market; below it, someone is going short.
+  const pk=histPeak()*1.15;
+  stripChart(x+2,y+1,w-6,30,[{data:S.hist.dem,max:pk,c:'#b9771a'},{data:S.hist.out,max:pk,c:'#2a7a3b'}]);
+  text('SENT OUT',x+2,y+34,'#9be0a8',1); text('DEMAND',x+40,y+34,'#f0b860',1);
+  const my=y+40;
+  edgewise(x+4,my,Math.max(24,h-44),stm,null);
+  const dev=clamp((S.grid.freq-50)/0.6,-1,1);
+  roundMeter(x+30,my+11,10,dev*2.2);
+  // synchroscope: spins until the generator is on the bars, then sits at twelve o'clock
+  const ang=out?Math.sin(AT*0.7)*0.05:AT*1.8;
+  roundMeter(x+58,my+11,10,ang,'#d8dcc8');
+  lamp(x+54,my+25,out,'#7cf08f'); lamp(x+60,my+25,!out&&S.turbs.some(t=>t.on),'#ffb23a');
+  // breaker indication: generator, main transformer, line
+  lamp(x+76,my+2,out,'#ff5a4e'); lamp(x+76,my+9,S.out.served>0,'#ff5a4e'); lamp(x+76,my+16,S.grid.trip>0,'#7cf08f');
+  lamp(x+84,my+2,!out,'#7cf08f'); lamp(x+84,my+9,!(S.out.served>0),'#7cf08f');
+}
+function benchBoard(x,y,w,h){
+  px(x,y,w,h,'#4a5850'); px(x,y,w,1,'#6f8176'); px(x,y+h-1,w,1,'#2f3833');
+  // control switches along the bench, pump switches under the mimic lit when running
+  for(let sx=x+6;sx<x+w-6;sx+=10){
+    if(sx>136&&sx<346) continue;
+    px(sx,y+4,3,5,'#1d2220'); px(sx+1,y+3,1,2,'#d8d1b2');
+  }
+  for(let i=0;i<U('loops');i++){
+    const sx=146+i*14, p=S.pumps[i], on=p.s>2&&p.h>0;
+    px(sx,y+4,4,6,'#1d2220'); px(sx+1,y+3,2,2,'#d8d1b2');
+    lamp(sx+5,y+4,true,p.h<=0?'#ff5a4e':on?'#7cf08f':'#e6e1cc');
+  }
+  for(let i=0;i<S.turbs.length;i++){
+    const sx=260+i*10, t=S.turbs[i];
+    px(sx,y+4,3,5,'#1d2220'); lamp(sx+3,y+3,true,t.h<30?'#ff5a4e':t.on?'#7cf08f':'#e6e1cc');
+  }
+}
+/* status of the six critical safety functions: 0 satisfied, 1 off-normal, 2 challenged, 3 in jeopardy */
+function csfStatus(){
+  const r=S.r, th=S.out.thermal, st=settleTemp(), lim=pressLimit();
+  const hs=S.ev.active.some(e=>e.id==='cond'||e.id==='heat'||e.id==='flood');
+  const noSink=th>coreThermalMax()*0.05&&turbCap()<=0;
+  return [
+    r.jam>0&&st>1000?3:(r.flux>130||r.jam>0)?2:(r.xe>60||r.flux>110)?1:0,
+    coolCap()<th&&th>0.01?3:st>1000?2:st>820?1:0,
+    noSink&&hs?3:(noSink||hs)?2:S.out.bypass>0.001?1:0,
+    r.press>lim?3:r.press>lim*0.95?2:r.press>lim*0.88?1:0,
+    r.integ<30?3:r.integ<50?2:r.integ<80?1:0,
+    r.coolant<15?3:r.coolant<30?2:(r.coolant<55||r.leak>0)?1:0
+  ];
+}
+function drawCtrl(){
+  const W=VW, H=VH, r=S.r;
+  const floorY=H-48, bB=floorY-2, bT=Math.max(28,bB-150), bench=bB-16;
+  // room shell
+  px(0,0,W,H,'#151e24');
+  px(0,0,W,12,'#1d272f'); for(let x=0;x<W;x+=20) px(x,0,1,12,'#171f26');
+  for(let x=0;x<W;x+=40) px(x,12,1,bT-12,'#131b21');
+  for(let x=30;x<W;x+=100){ px(x,9,46,3,'#3c4954'); px(x+2,11,42,1,'#fff3c8');
+    ctx.globalAlpha=0.045; px(x-24,12,94,bT,'#ffefb0'); ctx.globalAlpha=1 }
+  if(DANGER){ const a=AT*6; ctx.globalAlpha=0.08+0.08*Math.max(0,Math.sin(a)); px(0,12,W,floorY-12,'#ff3b30'); ctx.globalAlpha=1;
+    px(W/2-3,10,6,4,'#5a1712'); px(W/2-2,11,4,2,Math.sin(a)>0?'#ff6b5e':'#a8322b') }
+  if(bT>=46){
+    const sy=bT>=84?18:bT-22;
+    px(W/2-58,sy,116,11,'#0e1418'); rect(W/2-58,sy,116,11,'#2b3742');
+    const stg=plantStage(), un=siteUnits(stg);
+    textC(stg===0?'PILOT PLANT CONTROL ROOM':un>1?'MAIN CONTROL ROOM UNITS 1-'+un:'UNIT 1 MAIN CONTROL ROOM',W/2,sy+3,'#9fb3a8',1);
+    clockFace(W-44,sy+5,8);
+  }
+  // critical safety function status: one lit tile per function, the way an operator triages
+  if(bT>=84){
+    const names=['SUBCRITICALITY','CORE COOLING','HEAT SINK','VESSEL INTEGRITY','CONTAINMENT','INVENTORY'];
+    const st=csfStatus(), tw=72, gp=4, x0=Math.round(W/2-(names.length*(tw+gp)-gp)/2), sy=bT-24;
+    px(x0-4,sy-12,names.length*(tw+gp)+4,30,'#0e1418'); rect(x0-4,sy-12,names.length*(tw+gp)+4,30,'#2b3742');
+    text('CRITICAL SAFETY FUNCTIONS',x0,sy-9,'#9fb3a8',1);
+    names.forEach((n,k)=>{
+      const x=x0+k*(tw+gp), lv=st[k], blink=lv===3&&Math.floor(AT*3)%2;
+      const c=['#2e9b5c','#c9a227','#d9702a','#c8392f'][lv];
+      px(x,sy,tw,13,blink?'#5a1712':c); px(x,sy,tw,1,'#ffffff30');
+      textC(n,x+tw/2,sy+4,lv===0?'#dff5e6':'#1a1a1a',1);
+    });
+  }
+  // main control board
+  px(6,bT,W-12,bB-bT,'#56665d'); px(6,bT,W-12,2,'#7d8f83'); px(6,bB-2,W-12,2,'#3c4842');
+  for(const sx of [6,126,352,W-6]) px(sx,bT,2,bB-bT,'#3a463f');
+  annunciatorBand(10,bT+4,W-20);
+  const top=bT+26, ih=bench-top-3;
+  boardReactor(10,top,112,ih);
+  boardMimic(132,top,214,ih);
+  boardElectrical(358,top,W-366,ih);
+  benchBoard(6,bench,W-12,bB-bench);
+  // floor: vinyl tiles in a small plant, carpet tiles once the station is a complex
+  const stg=plantStage();
+  if(stg>=4){ px(0,floorY,W,H-floorY,'#222c3a'); for(let y=floorY+4;y<H;y+=12) for(let x=(y>>2)%2*12;x<W;x+=24) px(x,y,12,12,'#1f2836') }
+  else { px(0,floorY,W,H-floorY,'#1e282e'); for(let y=floorY+6;y<H;y+=8) px(0,y,W,1,'#1a2328'); for(let x=0;x<W;x+=24) px(x,floorY,1,H-floorY,'#1a2328') }
+  // operators' consoles: two CRT desks at the pilot plant, four later, flat panels at a big station
+  const seats=stg<2?[168,312]:[104,168,312,376], flat=stg>=3;
+  const dx0=stg<2?140:70, dw0=stg<2?200:340;
+  px(dx0,floorY+3,dw0,3,'#3b4955'); px(dx0,floorY+6,dw0,8,'#26323b'); px(dx0,floorY+3,dw0,1,'#56687a');
+  const feeds=[[S.hist.flux,160,'#7cf08f'],[S.hist.temp,1300,'#ffb23a'],[S.hist.out,histPeak()*1.15,'#7cf08f'],[S.hist.press,Math.max(10,pressLimit()),'#9ccfff']];
+  seats.forEach((sx,i)=>{
+    for(let m=0;m<2;m++){
+      const mx=sx-(flat?16:14)+m*(flat?17:16), my=floorY-(flat?10:11), mw2=flat?16:15, mh=flat?10:13;
+      px(mx,my,mw2,mh,flat?'#1a2026':'#0d1215'); rect(mx,my,mw2,mh,flat?'#3a4652':'#2b3742');
+      px(mx+1,my+1,mw2-2,mh-2,flat?'#06101c':'#08130e');
+      const f=feeds[(i+m)%4], a=f[0], gh=mh-4;
+      if(a&&a.length>1) for(let k=0;k<mw2-3;k++){ const v=a[Math.floor(k/(mw2-4)*(a.length-1))];
+        px(mx+1+k,my+mh-3-Math.round(clamp(v/f[1],0,1)*(gh-1)),1,1,flat?(f[2]==='#7cf08f'?'#5fd0ff':f[2]):f[2]) }
+      if(flat){ px(mx+7,my+mh,2,3,'#3a4652'); px(mx+5,my+mh+2,6,1,'#3a4652') } else px(mx+6,my+13,3,2,'#2b3742');
+    }
+  });
+  // reactor trip switch on the centre console, under a hinged guard
+  const tx=240, ty=floorY-4;
+  px(tx-9,ty,18,10,'#2a3238'); rect(tx-9,ty,18,10,'#151a1c');
+  disc(tx,ty+4,4,'#f2c23a'); disc(tx,ty+4,3,DANGER&&Math.floor(AT*3)%2?'#ff6b5e':'#c0392b');
+  px(tx-6,ty-3,12,2,'#9aa6ae'); px(tx-6,ty-3,1,4,'#9aa6ae');
+  ctrlHit={x:tx-11,y:ty-5,w:22,h:18};
+  // shift supervisor's desk, once the station is big enough to need one
+  if(stg>=2){ px(430,floorY+2,44,4,'#3b4955'); px(430,floorY+6,44,10,'#26323b');
+    px(446,floorY-9,15,11,'#0d1215'); rect(446,floorY-9,15,11,'#2b3742'); px(447,floorY-8,13,9,flat?'#06101c':'#08130e') }
+  // the shift at the consoles; anyone without a seat stands at the back of the room
+  const ops=S.crew.strike>0?[]:onDuty('ctrl');
+  seats.forEach((sx,i)=>{
+    const w=ops[i], cx=sx-4;
+    if(w){ seatedWorker(cx,floorY+4,w,r.jam<=0);
+      const nm=w.first.toUpperCase().slice(0,8); text(nm,Math.round(sx-textW(nm,1)/2),floorY+31,'#8fb0a2',1) }
+    else { px(cx-2,floorY+14,12,12,'#161d22'); rect(cx-2,floorY+14,12,12,'#232d35'); px(cx+3,floorY+26,2,3,'#232d35') }
+  });
+  const extra=ops.slice(seats.length);
+  if(stg>=2&&extra[0]){ seatedWorker(450,floorY+4,extra[0],true); extra.shift() }
+  extra.slice(0,3).forEach((w,k)=>walker(stg>=2?24+k*14:40+k*14,floorY+12,w,1,null,false));
+}
+
+
+/* ======================= VIEW: REACTOR BUILDING ======================= */
+/* A cutaway of a pressurised-water reactor containment. The pressure vessel sits in its
+   concrete cavity with the control rod drives on the head. Each coolant loop runs a hot
+   leg to a U-tube steam generator, back through a crossover leg to its reactor coolant
+   pump, and into the vessel's downcomer. One pressurizer rides on the first hot leg. */
+const STEEL=['#6f7c86','#9aa8b2','#4b5660','#262d33'];
+function rpvColumns(){ return Math.max(1,Math.min(S.core.length,8)) }
+function coreLoop(side,G,hotC,coldC,pump,isFirst){
+  const M=x=>side>0?x:480-x, R=(x,w)=>side>0?x:480-x-w;
+  const pf=pump.s/100*pump.h/100, sp=0.12+0.5*pf;
+  const steamF=clamp(S.out.gross/Math.max(0.001,turbCapRaw()),0,1);
+  // pipework first so the vessels sit over the joints
+  pipe([[M(268),G-100],[M(366),G-100]],6,hotC,'#1b2126');
+  pipe([[M(386),G-92],[M(386),G-30],[M(320),G-30],[M(320),G-44]],6,coldC,'#1b2126');
+  pipe([[M(312),G-50],[M(290),G-50],[M(290),G-90],[M(268),G-90]],6,coldC,'#1b2126');
+  pipe([[M(394),G-178],[M(432),G-178],[M(432),G-140],[M(466),G-140]],4,'#c9d4da','#1b2126');
+  pipe([[M(466),G-126],[M(394),G-126]],3,'#4f86ad','#1b2126');
+  // reactor coolant pump: casing, motor with cooling fins, flywheel housing
+  vessel(R(312,16),G-58,16,16,6,'#5d6a74','#8794a0','#3f4952','#22282d');
+  px(R(314,12),G-86,12,28,'#4b5a66'); rect(R(314,12),G-86,12,28,'#22282d');
+  for(let y=G-83;y<G-60;y+=3) px(R(315,10),y,10,1,'#3a4650');
+  px(R(313,14),G-91,14,5,'#7a8792'); rect(R(313,14),G-91,14,5,'#22282d');
+  const ph=Math.floor(AT*(1+pf*14))%4;
+  px(R(316,8)+ph*2,G-60,2,2,pump.h<=0?'#ff5a4e':'#dff0f6');
+  // steam generator: shell, cut away to show the tube bundle, separators and channel head
+  const sx=R(360,34), sy=G-196, sh=104;
+  vessel(sx,sy,34,sh,12,STEEL[0],STEEL[1],STEEL[2],STEEL[3]);
+  const ix=sx+3, iw=28, iy=sy+3, ihh=sh-6;
+  vband(ix,iy,iw,ihh,10,iy,G-160,'#33414b');                        // steam dome
+  vband(ix,iy,iw,ihh,10,G-160,G-146,'#2b3843');                      // separators
+  for(let k=0;k<4;k++) px(ix+3+k*6,G-158,3,10,'#7e8c96');
+  vband(ix,iy,iw,ihh,10,G-146,G-108,'#1f5571');                      // secondary water
+  vband(ix,iy,iw,ihh,10,G-108,G-105,'#8a98a3');                      // tube sheet
+  vband(ix,iy,iw,ihh,10,G-105,iy+ihh,coldC,side>0?1:-1);             // channel head, cold side
+  vband(ix,iy,iw,ihh,10,G-105,iy+ihh,hotC,side>0?-1:1);              //               hot side
+  px(sx+16,G-105,2,13,'#8a98a3');                                    // divider plate
+  const tube=S.r.temp>150?'#c99a6a':'#9a8a7a';
+  for(let k=0;k<4;k++){
+    const l=ix+4+k*2, rr=ix+iw-5-k*2, top=G-140+k*3;
+    px(l,top,1,G-108-top,tube); px(rr,top,1,G-108-top,tube); px(l,top,rr-l+1,1,tube);
+  }
+  if(steamF>0.01){ for(let k=0;k<7;k++){ const q=(AT*0.5*(0.3+steamF)+k/7)%1;
+    px(ix+3+((k*9)%22),Math.round(G-110-q*34),1,1,'#e6f4ff') } }
+  // pressurizer on the first loop: water below, steam bubble above, heaters at the bottom
+  if(isFirst){
+    const zx=R(332,16), zy=G-176, zh=70;
+    pipe([[zx+8,zy+zh],[zx+8,G-103]],3,hotC,'#1b2126');
+    vessel(zx,zy,16,zh,7,STEEL[0],STEEL[1],STEEL[2],STEEL[3]);
+    const lv=clamp(0.25+0.5*S.r.coolant/100,0.05,0.85), wy=Math.round(zy+3+(zh-6)*(1-lv));
+    vband(zx+3,zy+3,10,zh-6,5,zy+3,wy,'#3a4650');
+    vband(zx+3,zy+3,10,zh-6,5,wy,zy+zh-3,'#2a6f8f');
+    for(let k=0;k<3;k++) px(zx+4+k*3,zy+zh-14,1,9,S.r.temp>150?'#ff8a3a':'#5a3a2a');
+    px(zx+3,zy-4,3,4,'#8794a0'); px(zx+10,zy-4,3,4,'#8794a0');
+    if(S.r.vent>0) for(let k=0;k<10;k++){ const q=(AT*0.8+k/10)%1;
+      ctx.globalAlpha=1-q; px(zx+6+Math.round(Math.sin(k*2.3+AT)*q*12),Math.round(zy-6-q*26),3,2,'#e6f4ff') }
+    ctx.globalAlpha=1;
+  }
+  // coolant on the move
+  flow([[M(268),G-100],[M(366),G-100]],5,sp,'#ffe0b8');
+  flow([[M(370),G-104],[M(370),G-138],[M(388),G-138],[M(388),G-104]],5,sp*1.4,'#ffd8b0');
+  flow([[M(386),G-92],[M(386),G-30],[M(320),G-30],[M(320),G-44]],6,sp,'#c6e8ff');
+  flow([[M(312),G-50],[M(290),G-50],[M(290),G-90],[M(268),G-90]],5,sp,'#c6e8ff');
+  flow([[M(394),G-178],[M(432),G-178],[M(432),G-140],[M(466),G-140]],5,0.15+steamF*0.8,'#ffffff');
+}
+function drawCore(){
+  const W=VW, H=VH, r=S.r, G=H-6;
+  const yS=G-150, ryO=yS-4, ryI=yS-10, nl=U('loops');
+  const hotC=r.temp>150?heatColor(Math.min(r.temp,900)):'#4f7f9a', coldC=r.temp>260?'#5f8fa8':'#3f7fa6';
+  px(0,0,W,H,'#0a0f13');
+  for(let x=0;x<W;x+=16) px(x,0,1,G,'#0d1317');
+  for(let y=0;y<G;y+=16) px(0,y,W,1,'#0d1317');
+  // containment: post-tensioned concrete cylinder and dome with a steel liner
+  for(let x=12;x<=468;x++){ const d=(x-240)/228; px(x,Math.round(yS-ryO*Math.sqrt(Math.max(0,1-d*d))),1,G,'#5a646d') }
+  for(let x=19;x<=461;x++){ const d=(x-240)/221, yi=Math.round(yS-ryI*Math.sqrt(Math.max(0,1-d*d)));
+    px(x,yi,1,G-yi,'#131b20'); px(x,yi,1,1,'#8a98a3') }
+  px(19,yS,1,G-yS,'#8a98a3'); px(461,yS,1,G-yS,'#8a98a3');
+  for(let y=yS+8;y<G;y+=10){ px(13,y,5,1,'#4c565e'); px(463,y,5,1,'#4c565e') }
+  px(0,G,W,H-G,'#4a545c'); px(0,G,W,1,'#6a747c');
+  // equipment hatch, containment spray ring, polar crane
+  ring(15,G-60,7,'#2b3238'); disc(15,G-60,5,'#6a747c');
+  const spy=yS-ryI+12; px(170,spy,140,1,'#4e5a63'); for(let x=172;x<310;x+=10) px(x,spy+1,1,2,'#6f7c86');
+  const cy=yS+2;
+  px(20,cy,6,3,'#3d474f'); px(454,cy,6,3,'#3d474f');
+  px(24,cy-4,432,4,'#c9a227'); for(let x=26;x<454;x+=8) px(x,cy-4,4,1,'#2b2b2b');
+  const tx=240+Math.round(Math.sin(AT*0.06)*150);
+  px(tx-7,cy-8,14,4,'#8a6e1a'); line(tx,cy,tx,cy+14,'#9aa6ae'); px(tx-2,cy+14,5,4,'#d4b23a');
+  // concrete: secondary shields behind the loops, operating floor, primary shield round the vessel
+  for(const x of [76,126,350,400]) px(x,G-150,5,150,'#1d252b');
+  px(19,G-120,177,6,'#4e5860'); px(284,G-120,177,6,'#4e5860');
+  px(19,G-120,177,1,'#6a747c'); px(284,G-120,177,1,'#6a747c');
+  // safety-injection accumulators: nitrogen-pressurised tanks waiting to flood the core
+  for(const ax of [28,50]){ vessel(ax,G-64,16,50,7,'#3a4650','#4a5866','#2a343c','#1a2126'); px(ax+7,G-69,2,5,'#4a5866'); px(ax+3,G-40,10,1,'#c9a227') }
+  // ghost loops for the third and later coolant loops, standing behind
+  for(let k=2;k<nl;k++){
+    const side=k%2===0?1:-1, off=Math.floor((k-2)/2)*14, gx=side>0?404+off:480-404-off-26;
+    vessel(gx,G-186+off,26,92-off,10,'#2b363f','#36434d','#222b32','#1a2126');
+  }
+  px(196,G-112,9,112,'#59636c'); px(275,G-112,9,112,'#59636c');
+  for(let y=G-108;y<G;y+=6){ px(198,y,5,1,'#4c565e'); px(277,y,5,1,'#4c565e') }
+  // the loops (their pipes pass through the primary shield)
+  coreLoop(1,G,hotC,coldC,S.pumps[0],true);
+  if(nl>=2) coreLoop(-1,G,hotC,coldC,S.pumps[1],false);
+  // reactor pressure vessel
+  const vx=212, vy=G-122, vw=56, vh=110, nc=rpvColumns();
+  const cw=Math.floor(32/nc), cx0=224+Math.floor((32-cw*nc)/2), colX=c=>cx0+c*cw+(cw>>1);
+  px(214,vy-27,52,4,'#323c44');
+  for(let c=0;c<nc;c++){ const x=colX(c)-1; px(x,vy-23,3,27,'#8b98a2'); px(x,vy-25,3,2,'#b9c4cc') }
+  vessel(vx,vy,vw,vh,14,STEEL[0],STEEL[1],STEEL[2],STEEL[3]);
+  px(vx-4,vy+14,vw+8,5,'#5c6872'); for(let x=vx-3;x<vx+vw+4;x+=4) px(x,vy+15,2,3,'#2b3238');
+  px(vx-6,G-103,6,7,'#5c6872'); px(vx+vw,G-103,6,7,'#5c6872');
+  px(vx-6,G-93,6,7,'#5c6872'); px(vx+vw,G-93,6,7,'#5c6872');
+  // interior: water (or a steam void if the loop has drained), barrel, internals, core
+  const ix=vx+4, iw=vw-8, iy=vy+4, ih=vh-8;
+  const lvl=clamp((r.coolant-8)/52,0,1), wTop=Math.round(iy+ih-ih*lvl);
+  vband(ix,iy,iw,ih,11,iy,wTop,'#3a4650');
+  vband(ix,iy,iw,ih,11,wTop,iy+ih,'#1b4a64');
+  px(221,G-110,1,76,'#7f93a3'); px(258,G-110,1,76,'#7f93a3');
+  const cTop=G-72, cBot=G-36;
+  px(222,G-108,36,2,'#5c7282');
+  for(let c=0;c<nc;c++) px(colX(c),G-106,1,cTop-(G-106),'#4f6676');
+  px(222,cTop-2,36,2,'#8ea2b3'); px(222,cBot,36,3,'#8ea2b3');
+  // fuel assemblies, one column per group of positions
+  coreHit.length=0;
+  const N=S.core.length;
+  for(let c=0;c<nc;c++){
+    const a0=Math.floor(c*N/nc), a1=Math.floor((c+1)*N/nc), idxs=[];
+    let burn=0, spent=0;
+    for(let k=a0;k<a1;k++){ idxs.push(k); const a=S.core[k]; if(!a.on||a.burn>=100) spent++; else burn+=a.burn }
+    const live=idxs.length-spent, x=cx0+c*cw, w=Math.max(2,cw-1);
+    let col;
+    if(live===0) col='#2d2a28';
+    else { const b=burn/live/100; col=b<0.33?'#a8b88e':b<0.66?'#8c8f6a':'#6e6a4f' }
+    px(x,cTop,w,cBot-cTop,col);
+    px(x,cTop,w,2,'#5a5f55'); px(x,cBot-2,w,2,'#5a5f55');
+    for(let y=cTop+7;y<cBot-3;y+=7) px(x,y,w,1,'#c9d2d9');
+    if(spent&&live) px(x,cTop,w,1,'#ffb23a');
+    if(live&&r.flux>2){ ctx.globalAlpha=clamp(r.flux/140,0.15,0.6); px(x,cTop+2,w,cBot-cTop-4,heatColor(r.temp)); ctx.globalAlpha=1 }
+    if(wTop>cTop&&live) { ctx.globalAlpha=0.6; px(x,cTop,w,Math.min(cBot,wTop)-cTop,'#ff7a3a'); ctx.globalAlpha=1 }
+    coreHit.push({i:c,idxs,x,y:cTop,w,h:cBot-cTop});
+  }
+  // Cherenkov glow round a core at power
+  if(r.flux>1&&lvl>0.4){
+    const g=clamp(r.flux/130,0,0.5)*(0.9+0.1*Math.sin(AT*7));
+    ctx.globalAlpha=g*0.5; px(218,cTop-10,44,cBot-cTop+20,'#3da3ff');
+    ctx.globalAlpha=g; px(222,cTop-4,36,cBot-cTop+8,'#7cc4ff'); ctx.globalAlpha=1;
+  }
+  // control rods: drive shafts down through the guide tubes, absorber into the fuel
+  const tip=Math.round(cTop-2+(cBot-cTop)*(r.rods/100));
+  for(let c=0;c<nc;c++){ const x=colX(c);
+    px(x,vy+4,1,Math.max(0,cTop-vy-4),'#b9c4cc');
+    if(tip>cTop) px(x,cTop,1,tip-cTop,r.jam>0?'#ff5a4e':'#2b343b');
+    px(x-1,tip-1,3,2,'#b9c4cc');
+  }
+  // flow: down the downcomer, up through the core
+  const sp=0.12+0.5*pumpFlow();
+  if(lvl>0.2){
+    flow([[218,G-92],[218,G-24]],4,sp,'#bfe3ff'); flow([[261,G-92],[261,G-24]],4,sp,'#bfe3ff');
+    for(let c=0;c<nc;c+=2) flow([[colX(c),cBot],[colX(c),cTop]],2,sp*1.1,'#e6f6ff');
+  }
+  // trouble: a leak from the crossover leg, cracked containment, a melted core
+  if(r.leak>0){ for(let k=0;k<4;k++){ const q=(AT*0.9+k/4)%1; px(353,Math.round(G-27+q*26),1,2,'#7cc8ff') } px(346,G-1,16,1,'#3f7fa6') }
+  if(r.integ<60){
+    const cr=[[150,yS-ryO*0.72],[300,yS-ryO*0.8],[60,yS+30],[420,yS+60]];
+    cr.forEach((p,k)=>{ if(r.integ<60-k*12){ let x=p[0],y=p[1]; for(let s=0;s<6;s++){ const nx=x+((s*7+k)%5)-2, ny=y+3; line(x,y,nx,ny,'#1a1f23'); x=nx; y=ny } } });
+    if(r.integ<30) for(let k=0;k<8;k++){ const q=(AT*0.3+k/8)%1; ctx.globalAlpha=(1-q)*0.8;
+      px(Math.round(150+k*20+Math.sin(AT+k)*6),Math.round(yS-ryO*0.6-q*30),2,2,'#7cf08f') }
+    ctx.globalAlpha=1;
+  }
+  if(S.over==='meltdown'){
+    ctx.globalAlpha=0.6+0.3*Math.sin(AT*5); vband(ix,iy,iw,ih,11,cTop-10,iy+ih,'#ffd27a'); ctx.globalAlpha=1;
+    for(let k=0;k<14;k++){ const q=(AT*0.25+k/14)%1; ctx.globalAlpha=(1-q)*0.7;
+      px(Math.round(240+Math.sin(k*1.7+AT)*q*80),Math.round(vy-q*110),4,3,k%2?'#4a4a4a':'#8a3a22') }
+    ctx.globalAlpha=1;
+  }
+}
+
+
+/* ======================= VIEW: TURBINE HALL ======================= */
+/* Each set is a real turbine-generator train on its table-top deck: steam stop and
+   control valves, a high-pressure turbine, a moisture separator reheater feeding the
+   low-pressure casings through crossover pipes, then the generator and its exciter, all
+   on one shaft. The condenser sits in the bay beneath the low-pressure turbines. Bigger
+   models carry more low-pressure casings. */
+function drawTG(x,y,w,h,t,i){
+  const nLP=[1,1,2,2,3,3][t.m];
+  const running=t.on&&t.h>0&&S.out.gross>0.0005;
+  // size the train from the bay, then stand deck and condenser on the bay floor
+  const L=w*0.9, x0=x+w*0.05, u=Math.max(5,Math.min(h*0.17,L/9.5));
+  const below=Math.round(u*1.8), deckY=y+h-below-16;
+  // table-top foundation on columns, basement floor beneath
+  px(x+2,deckY,w-4,4,'#6a747c'); px(x+2,deckY,w-4,1,'#8a949c');
+  const legs=Math.max(3,Math.round(w/56));
+  for(let k=0;k<legs;k++){ const lx=x+6+Math.round(k*(w-17)/(legs-1)); px(lx,deckY+4,5,y+h-deckY-6,'#59636c'); px(lx,deckY+4,1,y+h-deckY-6,'#6a747c') }
+  px(x,y+h-2,w,2,'#323c44');
+  // train proportions
+  const parts=[['v',0.06],['hp',0.15]]; for(let k=0;k<nLP;k++) parts.push(['lp',0.15]); parts.push(['gen',0.22],['ex',0.05]);
+  const gap=0.02, tot=parts.reduce((s,p)=>s+p[1],0)+gap*(parts.length-1);
+  const yC=deckY-Math.round(u*1.0);
+  let cx=x0; const at={};
+  parts.forEach(p=>{ const len=p[1]/tot*L; (at[p[0]]=at[p[0]]||[]).push([Math.round(cx),Math.round(len)]); cx+=len+gap/tot*L });
+  const hp=at.hp[0], gen=at.gen[0], ex=at.ex[0], lps=at.lp, v=at.v[0];
+  const lpS=lps[0][0], lpE=lps[nLP-1][0]+lps[nLP-1][1];
+  // condenser in the bay under the low-pressure casings, with circulating water
+  const cT=deckY+6, cH=Math.max(5,below);
+  px(lpS,cT,lpE-lpS,cH,'#34444f'); rect(lpS,cT,lpE-lpS,cH,'#1f2b33');
+  for(let yy=cT+2;yy<cT+cH-2;yy+=3) px(lpS+2,yy,lpE-lpS-4,1,'#3f5463');
+  const cw=[[lpS-10,cT+cH-3],[lpS,cT+cH-3]], cwo=[[lpE,cT+2],[lpE+10,cT+2]];
+  pipe(cw,3,'#3f7fa6','#141b20'); pipe(cwo,3,'#3f7fa6','#141b20');
+  if(running){ flow(cw,2,0.8,'#bfe3ff'); flow(cwo,2,0.8,'#bfe3ff') }
+  // moisture separator reheater behind the train, when there is room for it
+  const casing=['#5d7181','#86a0b2','#3e4d59','#1f272e'], lpc=['#566a7a','#7f98aa','#3a4955','#1f272e'];
+  const msrY=yC-Math.round(u*2.3);
+  if(h>=60){
+    hvessel(hp[0]+hp[1]/2,msrY,lpE-(hp[0]+hp[1]/2),Math.max(4,Math.round(u*0.6)),Math.max(2,Math.round(u*0.3)),'#4b5c69','#62788a','#36434d','#1f272e');
+    pipe([[hp[0]+hp[1]-3,yC-Math.round(u*0.4)],[hp[0]+hp[1]-3,msrY+2]],2,'#7e95a6','#1f272e');
+    for(const lp of lps) pipe([[lp[0]+Math.round(lp[1]/2),msrY+Math.round(u*0.5)],[lp[0]+Math.round(lp[1]/2),yC-Math.round(u*0.9)]],Math.max(2,Math.round(u*0.3)),'#7e95a6','#1f272e');
+  } else for(const lp of lps) pipe([[hp[0]+hp[1]-3,yC-Math.round(u*0.6)],[hp[0]+hp[1]-3,yC-Math.round(u*1.3)],[lp[0]+Math.round(lp[1]/2),yC-Math.round(u*1.3)],[lp[0]+Math.round(lp[1]/2),yC-Math.round(u*0.9)]],2,'#7e95a6','#1f272e');
+  // main steam in through the stop and control valves
+  const ms=[[x+1,yC-Math.round(u*1.2)],[v[0]+2,yC-Math.round(u*1.2)],[v[0]+2,yC-Math.round(u*0.2)],[hp[0],yC-Math.round(u*0.2)]];
+  pipe(ms,2,'#c9d4da','#1f272e');
+  vessel(v[0],yC-Math.round(u*1.4),Math.max(4,Math.round(v[1]*0.45)),Math.round(u*1.2),2,'#7e95a6','#a9bccb','#566a7a','#1f272e');
+  vessel(v[0]+Math.round(v[1]*0.5),yC-Math.round(u*0.9),Math.max(3,Math.round(v[1]*0.4)),Math.round(u*0.9),2,'#7e95a6','#a9bccb','#566a7a','#1f272e');
+  if(running) flow(ms,4,0.9,'#ffffff');
+  // shaft line with bearing pedestals and couplings
+  px(hp[0],yC-1,ex[0]+ex[1]-hp[0],2,'#9aa8b2');
+  for(const p of [hp,...lps,gen]){
+    const bx=p[0]+p[1]+1; px(bx,yC,4,deckY-yC,'#3a4650'); px(bx,yC-2,4,4,'#c9d2d9');
+    if(running){ const ph=Math.floor(AT*12)%2; px(bx+ph*2,yC-2,2,4,'#3a4650') }
+  }
+  // high-pressure turbine
+  hvessel(hp[0],yC-Math.round(u*0.55),hp[1],Math.round(u*1.1),Math.max(2,Math.round(u*0.45)),casing[0],casing[1],casing[2],casing[3]);
+  // low-pressure turbines: big hooded casings exhausting down into the condenser
+  for(const lp of lps){
+    const top=yC-Math.round(u*0.95), hh=deckY-top;
+    px(lp[0],top+2,lp[1],hh-2,lpc[0]); px(lp[0]+2,top,lp[1]-4,2,lpc[0]);
+    px(lp[0],top+3,lp[1],Math.max(1,Math.round(hh*0.14)),lpc[1]);
+    px(lp[0],deckY-Math.round(hh*0.28),lp[1],Math.round(hh*0.28),lpc[2]);
+    rect(lp[0],top+2,lp[1],hh-2,lpc[3]); px(lp[0]+2,top,lp[1]-4,1,lpc[3]);
+    px(lp[0],yC,lp[1],1,lpc[3]);                                    // horizontal joint
+    for(let bx=lp[0]+2;bx<lp[0]+lp[1]-1;bx+=3) px(bx,yC-1,1,1,'#b9c4cc');
+  }
+  // generator with hydrogen coolers on top, then the exciter
+  const gc=t.h<30?['#5a4a44','#7a625a','#3e322e','#1f272e']:['#4f6a5c','#7a9688','#35493f','#1f272e'];
+  hvessel(gen[0],yC-Math.round(u*0.65),gen[1],Math.round(u*1.3),Math.max(2,Math.round(u*0.35)),gc[0],gc[1],gc[2],gc[3]);
+  px(gen[0]+2,yC-Math.round(u*0.65)+1,2,Math.round(u*1.3)-2,gc[2]); px(gen[0]+gen[1]-4,yC-Math.round(u*0.65)+1,2,Math.round(u*1.3)-2,gc[2]);
+  for(let k=0;k<2;k++) px(gen[0]+Math.round(gen[1]*(0.25+k*0.35)),yC-Math.round(u*0.65)-3,Math.max(3,Math.round(gen[1]*0.18)),3,'#3e5248');
+  hvessel(ex[0],yC-Math.round(u*0.35),ex[1],Math.round(u*0.7),Math.max(1,Math.round(u*0.2)),casing[0],casing[1],casing[2],casing[3]);
+  // isolated phase bus down through the deck to the main transformer
+  for(let k=0;k<3;k++) px(gen[0]+gen[1]-8+k*3,yC+Math.round(u*0.65),1,y+h-yC-Math.round(u*0.65)-2,'#8a949c');
+  // set number plate and status lamp
+  const plx=gen[0]+Math.round(gen[1]/2)-4, ply=yC-3;
+  px(plx,ply,9,7,'#d8dcc8'); rect(plx,ply,9,7,'#1f272e'); text(String(i+1),plx+3,ply+1,'#1d1d1d',1);
+  const lc=t.h<=0?'#ff5a4e':!t.on?'#55615b':t.h<30?(Math.floor(AT*3)%2?'#ff5a4e':'#552520'):running?'#7cf08f':'#ffb23a';
+  lamp(gen[0]+gen[1]-6,yC-Math.round(u*0.65)-6,true,lc);
+  // condition: wisps from tired glands, sparks from a failing generator, dim when off
+  if(running){ for(let k=0;k<3;k++){ const q=(AT*0.7+k/3)%1; ctx.globalAlpha=0.35*(1-q);
+    px(hp[0]+Math.round(hp[1]*0.3)+k*3,Math.round(yC-u*0.6-q*8),1,2,'#ffffff') } ctx.globalAlpha=1 }
+  if(t.on&&t.h<60) for(let k=0;k<5;k++){ const q=(AT*0.9+k/5)%1, lp=lps[k%nLP]; ctx.globalAlpha=0.6*(1-q);
+    px(lp[0]+Math.round(lp[1]*0.5)+Math.round(Math.sin(k*3+AT)*q*6),Math.round(yC-q*14),2,2,'#e6f4ff') }
+  ctx.globalAlpha=1;
+  if(t.h<30&&t.h>0&&Math.random()<0.35) px(gen[0]+ri(2,gen[1]-3),yC+ri(-4,4),1,1,'#ffe66d');
+  if(!t.on||t.h<=0){ ctx.globalAlpha=t.h<=0?0.5:0.3; px(x+2,y,w-4,deckY-y,'#0a0f13'); ctx.globalAlpha=1 }
+}
+function drawTurb(){
+  const W=VW, H=VH, nf=nightF();
+  px(0,0,W,H,'#18222a');
+  // roof trusses and clerestory glazing
+  px(0,0,W,3,'#2b3742'); px(0,13,W,2,'#2b3742');
+  for(let x=0;x<W;x+=32){ line(x,3,x+16,13,'#2b3742'); line(x+16,13,x+32,3,'#2b3742') }
+  const sky=nf>0.6?'#0f1a2c':nf>0.18?'#5a4a6a':'#8fb6cf';
+  for(let x=10;x<W;x+=28){ px(x,17,20,10,'#0d1418'); px(x+1,18,18,8,sky); px(x+10,18,1,8,'#0d1418') }
+  // cladding and steel portal columns
+  for(let x=0;x<W;x+=4) px(x,28,1,H-28,'#1c2730');
+  for(let x=0;x<W;x+=120){ px(x,14,7,H-14,'#3b4955'); px(x+1,14,1,H-14,'#566876'); px(x+5,14,1,H-14,'#2b3742') }
+  // overhead travelling crane on its runway
+  const cy=32;
+  px(0,cy+4,W,2,'#4a5966'); px(0,cy+6,W,1,'#2b3742');
+  const bx=Math.round(W/2+Math.sin(AT*0.04)*(W/2-50));
+  px(bx-36,cy-2,72,6,'#c9a227'); for(let x=bx-34;x<bx+36;x+=6) px(x,cy-2,3,1,'#2b2b2b');
+  px(bx-4,cy+4,8,4,'#8a6e1a');
+  const hook=cy+16+Math.round(Math.sin(AT*0.25)*5);
+  line(bx-1,cy+8,bx-1,hook,'#9aa6ae'); line(bx+1,cy+8,bx+1,hook,'#9aa6ae'); px(bx-2,hook,5,4,'#d4b23a');
+  // the sets, laid out in bays
+  turbHit.length=0;
+  const n=S.turbs.length, cols=n<=2?1:(n<=4?2:4), rows=Math.ceil(n/cols);
+  const top=cy+14, cw=Math.floor((W-12)/cols), ch=Math.floor((H-top-2)/rows);
+  for(let i=0;i<n;i++){
+    const c=i%cols, rr=Math.floor(i/cols), x=6+c*cw, y=top+rr*ch;
+    drawTG(x,y,cw,ch,S.turbs[i],i);
+    turbHit.push({i,x,y,w:cw,h:ch});
+  }
+}
+
+
+/* ======================= VIEW: THE GRID ======================= */
+/* From the plant's switchyard a line runs on lattice towers past each customer.
+   Settlements grow from one house to an industrial belt; the region sits on the horizon,
+   the nation is fed through an HVDC converter at the coast, the continent by a subsea
+   cable, and the world hangs over the sea. Only names are written on the map. */
+const GRIDX=[100,128,160,198,242,290,330,360,424,452];
+const GRIDN=['HOUSE','STREET','VILLAGE','TOWN','CITY','BELT','REGION','NATION','CONT','WORLD'];
+function winLit(seed,on,lit){
+  if(!on||nightF()<0.3) return false;
+  const h=((seed*9301+49297)%233280)/233280;
+  if(h>0.78) return false;
+  if(lit<0.98&&(h>lit*0.8||(lit<0.7&&Math.floor(AT*2+seed)%4===0))) return false;
+  return true;
+}
+function bldg(x,gy,w,h,col,on,lit,seed){
+  px(x,gy-h,w,h,col); px(x+w-1,gy-h,1,h,'#0000002a'); px(x,gy-h,w,1,'#ffffff1a');
+  for(let yy=gy-h+2;yy<gy-1;yy+=3) for(let xx=x+1;xx<x+w-1;xx+=2)
+    px(xx,yy,1,1,winLit(seed*131+xx*7+yy*13,on,lit)?'#ffd98a':'#1c242b');
+}
+function house(x,gy,on,lit,seed,wall){
+  px(x,gy-5,8,5,wall||'#c9b89a');
+  for(let k=0;k<5;k++) px(x-1+k,gy-6-k,10-2*k,1,'#7a3b2e');
+  px(x+5,gy-3,2,3,'#3a2a22');
+  px(x+1,gy-4,2,2,winLit(seed,on,lit)?'#ffd98a':'#2a333b');
+}
+function smoke(x,y,n,c){
+  const base=ctx.globalAlpha;
+  for(let k=0;k<n;k++){ const q=(AT*0.25+k/n)%1; ctx.globalAlpha=base*0.5*(1-q);
+    px(Math.round(x+q*10+Math.sin(AT+k)*2),Math.round(y-q*18),3+Math.round(q*3),2,c) }
+  ctx.globalAlpha=base;
+}
+function streetLamp(x,gy,on){
+  px(x,gy-12,1,12,'#55606a'); px(x,gy-12,3,1,'#55606a');
+  if(on&&nightF()>0.3){ const a=ctx.globalAlpha; ctx.globalAlpha=a*0.25; px(x,gy-11,5,10,'#ffd98a'); ctx.globalAlpha=a; px(x+2,gy-11,1,1,'#ffe9a8') }
+}
+function settlement(i,on,lit,gy,hy){
+  const x=GRIDX[i];
+  ctx.globalAlpha=on?1:0.42;
+  if(i===0){ house(x-4,gy,on,lit,3,'#d8c8a8'); px(x+8,gy-12,1,12,'#5a4632'); px(x+6,gy-12,5,1,'#5a4632') }
+  else if(i===1){
+    ['#c9b89a','#b8c4c9','#d6c39a'].forEach((c,k)=>house(x-13+k*9,gy,on,lit,10+k,c));
+    streetLamp(x-15,gy,on); streetLamp(x+15,gy,on);
+  }
+  else if(i===2){
+    house(x-16,gy,on,lit,21,'#c4a99a'); house(x-7,gy-1,on,lit,22,'#a9b8a0');
+    px(x+3,gy-13,8,13,'#b9ad94'); for(let k=0;k<4;k++) px(x+3+k,gy-14-k,8-2*k,1,'#6a6a72');
+    px(x+6,gy-23,2,6,'#6a6a72'); px(x+6,gy-9,2,3,winLit(7,on,lit)?'#ffd98a':'#2a333b');
+  }
+  else if(i===3){
+    px(x-21,gy-16,1,16,'#6a747c'); px(x-15,gy-16,1,16,'#6a747c');
+    hvessel(x-23,gy-22,10,7,3,'#8a96a0','#b0bcc6','#6a747c','#3a444c');
+    [9,13,8,15,11,10].forEach((h,k)=>bldg(x-11+k*5,gy,5,h,['#9a8f80','#8a96a0','#a69882','#7f8c96'][k%4],on,lit,30+k));
+  }
+  else if(i===4){
+    [18,30,24,44,36,22,28].forEach((h,k)=>bldg(x-20+k*6,gy,k===3?7:6,h,['#5f6f7d','#6b7a86','#56636f','#7a8894'][k%4],on,lit,50+k));
+    px(x-1,gy-52,1,8,'#9aa6ae'); if(on&&Math.floor(AT*1.5)%2) px(x-1,gy-53,1,1,'#ff5a4e');
+  }
+  else if(i===5){
+    for(let k=0;k<3;k++){ const sx=x-24+k*14; px(sx,gy-10,13,10,'#6a5f55');
+      for(let t=0;t<3;t++) line(sx+t*4,gy-13,sx+t*4+4,gy-10,'#4a423a');
+      for(let w=sx+2;w<sx+12;w+=3) px(w,gy-6,1,2,winLit(70+k*5+w,on,lit)?'#ffb86a':'#2a2522') }
+    for(let k=0;k<3;k++){ const cx=x-19+k*13; px(cx,gy-30,3,20,'#7a6a5a'); px(cx,gy-30,3,2,'#c0392b'); if(on) smoke(cx+1,gy-31,5,'#9aa0a6') }
+    px(x+16,gy-20,8,20,'#5a4a3a');
+    if(on){ const a=ctx.globalAlpha; ctx.globalAlpha=a*(0.25+0.1*Math.sin(AT*3)); px(x+14,gy-10,12,10,'#ff8a3a'); ctx.globalAlpha=a }
+  }
+  else if(i===6){
+    for(let k=0;k<3;k++){ const cx=x-16+k*12, by=hy+2+(k%2);
+      for(let b=0;b<4;b++){ const h=2+((b*5+k)%4); px(cx+b*2,by-h,2,h,'#5a6a72');
+        if(winLit(90+k*4+b,on,lit)) px(cx+b*2,by-h,1,1,'#ffd98a') } }
+  }
+  else if(i===7){
+    px(x-10,gy-14,20,14,'#9aa6ae'); px(x-10,gy-14,20,2,'#b9c4cc'); rect(x-10,gy-14,20,14,'#4a545c');
+    for(let k=0;k<4;k++) px(x-8+k*5,gy-11,3,5,'#3f7fa6');
+    px(x+10,gy-8,4,8,'#7a8792');
+    if(on){ const a=ctx.globalAlpha; ctx.globalAlpha=a*0.3; px(296,hy-1,76,2,'#ffd98a'); ctx.globalAlpha=a;
+      for(let k=0;k<14;k++) if(winLit(110+k,on,lit)) px(298+k*5,hy-1,1,1,'#ffe9a8') }
+  }
+  else if(i===8){
+    for(let xx=394;xx<476;xx++){ const h=3+Math.round(Math.abs(Math.sin(xx/11))*5+Math.sin(xx/4)); px(xx,hy-h,1,h,'#3a4d5a') }
+    if(on) for(let k=0;k<15;k++) if(winLit(130+k,on,lit)) px(397+k*5,hy-2-(k%3),1,1,'#ffd98a');
+  }
+  else if(i===9){
+    const r=Math.max(12,Math.min(26,Math.round(hy*0.2))), cx=x, cy=Math.round(hy*0.42);
+    disc(cx,cy,r+2,'#5aa0d0'); disc(cx,cy,r,'#1f4f7a');
+    for(const l of [[-0.4,-0.3,0.35],[0.2,-0.1,0.3],[-0.1,0.35,0.25],[0.45,0.35,0.18]])
+      disc(Math.round(cx+l[0]*r),Math.round(cy+l[1]*r),Math.round(l[2]*r),'#3f7a4a');
+    const a=ctx.globalAlpha; ctx.globalAlpha=a*0.55;
+    for(let yy=-r;yy<=r;yy++){ const w=Math.floor(Math.sqrt(r*r-yy*yy)); px(cx+Math.round(w*0.15),cy+yy,w-Math.round(w*0.15)+1,1,'#050a14') }
+    ctx.globalAlpha=a;
+    if(on) for(let k=0;k<22;k++){ const ang=k*2.399, rr=Math.sqrt((k+0.5)/22)*r*0.9;
+      const dx=Math.round(Math.cos(ang)*rr), dy=Math.round(Math.sin(ang)*rr);
+      if(dx>0&&winLit(150+k,on,lit)) px(cx+dx,cy+dy,1,1,'#ffd98a') }
+  }
+  ctx.globalAlpha=1;
+}
+/* ---- the station from outside: units, cooling towers, switchyard, diesels ---- */
+function coolingTower(x,gy,h,steamF,mech){
+  if(mech){                                                   // pilot plant: a mechanical-draught cell
+    px(x,gy-9,22,9,'#8f9aa2'); px(x,gy-9,22,1,'#a9b4bb');
+    for(let k=0;k<3;k++){ px(x+2+k*7,gy-12,5,3,'#6a747c');
+      for(let j=0;j<3;j++){ const q=(AT*0.3+j/3+k*0.2)%1; ctx.globalAlpha=(1-q)*0.55*steamF;
+        px(Math.round(x+3+k*7+q*4),Math.round(gy-14-q*12),3,2,'#eef3f6') } }
+    ctx.globalAlpha=1; return;
+  }
+  const w0=Math.max(8,Math.round(h*0.46));
+  for(let y=0;y<h;y++){ const w=Math.round(w0-Math.sin(y/h*Math.PI)*w0*0.28);
+    px(x+Math.round((w0-w)/2),gy-h+y,w,1,y%6===0?'#9aa6ae':'#b9c2c8') }
+  px(x+Math.round(w0*0.15),gy-h,Math.round(w0*0.7),1,'#8a949c');
+  for(let k=0;k<12;k++){ const q=(AT*0.18+k/12+x*0.01)%1; ctx.globalAlpha=(1-q)*0.7*steamF;
+    px(Math.round(x+w0*0.3+q*h*0.4+Math.sin(AT*0.6+k)*3),Math.round(gy-h-2-q*h*0.85),Math.round(4+q*h*0.12),3,'#eef3f6') }
+  ctx.globalAlpha=1;
+}
+function unitExterior(x,gy,s,st,dk){
+  const dw=Math.max(8,Math.round(18*s)), dh=Math.max(10,Math.round(28*s));
+  const tw=Math.round(28*s), th=Math.round(15*s);
+  if(st>=2){ px(x-Math.round(7*s),gy-Math.round(13*s),Math.round(9*s),Math.round(13*s),'#8f9aa2'); px(x-Math.round(7*s),gy-Math.round(13*s),Math.round(9*s),1,'#a9b4bb') }
+  px(x+dw-2,gy-th,tw,th,st>=3?'#b3bec5':'#97a2aa'); px(x+dw-2,gy-th,tw,1,'#c9d2d9'); px(x+dw-2,gy-th+1,tw,1,'#7a8792');
+  if(st>=1) for(let k=0;k<Math.floor((tw-4)/5);k++) px(x+dw+1+k*5,gy-th+4,2,Math.max(1,Math.round(3*s)),dk?'#ffe9a8':'#6a7884');
+  vessel(x,gy-dh,dw,dh,Math.round(dw*0.42),'#c6ced3','#e0e6ea','#9aa6ae','#5a646c');
+  if(st>=3) px(x+Math.round(dw*0.75),gy-dh-Math.round(6*s),2,Math.round(8*s),'#8a949c');
+  if(dk) px(x+Math.round(dw/2),gy-dh-1,1,1,Math.floor(AT*1.5)%2?'#ff5a4e':'#5a1a14');
+}
+/* the whole site in the grid landscape: units further back stand higher and smaller */
+function drawSite(gy,dk){
+  const st=plantStage(), n=siteUnits(st), ax=auxState();
+  const steam=clamp(S.out.gross/Math.max(0.001,turbCapRaw()),0,1);
+  const U4=[[6,0,1],[34,-9,0.78],[58,-15,0.64],[20,-19,0.54]];
+  const T4=[[62,0,40],[78,-9,33],[46,-15,28],[70,-20,24]];
+  const sc=st===0?0.72:st===1?0.86:1;
+  for(let k=n-1;k>=0;k--){
+    const [tx,ty,th]=T4[k]; coolingTower(tx,gy+ty,Math.round(th*sc*(k?1:1)),steam,st===0);
+    const [ux,uy,us]=U4[k]; unitExterior(ux,gy+uy,us*sc,st,dk);
+  }
+  // switchyard grows from a pole-mounted transformer to a full double-busbar yard
+  if(st===0){ px(86,gy-12,1,12,'#5a4632'); px(83,gy-12,7,1,'#5a4632'); px(84,gy-9,5,4,'#6a747c') }
+  else {
+    const yw=st>=3?16:st>=2?12:8, yx=90-yw;
+    px(yx-1,gy-1,yw+2,1,'#4a545c');
+    for(let k=0;k<=yw;k+=4){ px(yx+k,gy-9,1,9,'#7a8792') }
+    px(yx,gy-9,yw+1,1,'#7a8792'); if(st>=2) px(yx,gy-6,yw+1,1,'#7a8792');
+    px(yx+1,gy-4,5,4,'#5d6a74'); for(let k=0;k<2;k++) px(yx+1,gy-3+k*2,5,1,'#3f4952');
+    if(st>=3){ px(yx+8,gy-4,5,4,'#5d6a74'); px(yx+8,gy-3,5,1,'#3f4952') }
+  }
+  // emergency diesel generator building: smoke from its stacks while the diesels run
+  if(ax.edgs>0&&st>=1){
+    const ex=st>=3?2:40, ey=gy;
+    px(ex,ey-6,12,6,'#7a6a5a'); px(ex,ey-6,12,1,'#9a8a7a');
+    for(let k=0;k<ax.edgs;k++){ px(ex+2+k*4,ey-10,1,4,'#4a423a');
+      if(ax.run) for(let j=0;j<4;j++){ const q=(AT*0.4+j/4+k*0.3)%1; ctx.globalAlpha=(1-q)*0.6;
+        px(Math.round(ex+2+k*4+q*6),Math.round(ey-11-q*10),2,2,'#5a5a5a') } }
+    ctx.globalAlpha=1;
+  }
+  if(dk) for(let k=0;k<5+st*2;k++) px(4+((k*17)%84),gy-1-((k*7)%14),1,1,'#ffe9a8');
+}
+
+/* the station as a distant skyline from the yard or the drawing office, right-aligned at xr */
+function siteSkyline(xr,by,s,dark){
+  const st=plantStage(), n=siteUnits(st);
+  const steam=clamp(S.out.gross/Math.max(0.001,turbCapRaw()),0,1);
+  const dc=dark?['#56626c','#66727c','#46505a','#2b3238']:['#a9b4bb','#c6ced3','#8a96a0','#4a545c'];
+  const sc=s*(n>2?0.8:1)*(st===0?0.7:1);
+  const dw=Math.max(6,Math.round(30*sc)), dh=Math.max(8,Math.round(46*sc)), gap=Math.max(1,Math.round(4*sc));
+  const th=Math.max(8,Math.round(54*sc)), w0=Math.max(6,Math.round(th*0.5));
+  let x=xr-(n*(dw+gap)+(st===0?Math.round(26*sc):n*(w0+gap)));
+  for(let k=0;k<n;k++){ vessel(x,by-dh,dw,dh,Math.round(dw*0.42),dc[0],dc[1],dc[2],dc[3]); x+=dw+gap }
+  if(st===0){ px(x,by-Math.round(10*sc),Math.round(24*sc),Math.round(10*sc),dark?'#4e5a64':'#8f9aa2'); return }
+  for(let k=0;k<n;k++){
+    for(let y=0;y<th;y++){ const w=Math.round(w0-Math.sin(y/th*Math.PI)*w0*0.28); px(x+Math.round((w0-w)/2),by-th+y,w,1,dark?'#56626c':'#b9c2c8') }
+    for(let j=0;j<8;j++){ const q=(AT*0.15+j/8+k*0.13)%1; ctx.globalAlpha=(1-q)*0.5*steam;
+      px(Math.round(x+w0*0.3+q*th*0.4),Math.round(by-th-2-q*th*0.7),Math.round(4+q*th*0.12),3,'#dfe7ec') }
+    ctx.globalAlpha=1; x+=w0+gap;
+  }
+}
+
+/* ---- single-line diagram of the station's electrical system ---- */
+const FEED=['HSE','STR','VIL','TWN','CTY','BLT','REG','NAT','CNT','WLD'];
+function olWire(p,live,dir){
+  for(let i=1;i<p.length;i++) line(p[i-1][0],p[i-1][1],p[i][0],p[i][1],live?'#e8cf5a':'#2f3d47');
+  if(live) flow(dir<0?p.slice().reverse():p,Math.max(2,Math.round(polyLen(p)/14)),0.5,'#fff6c8');
+}
+function olBus(x0,x1,y,live,label){
+  px(x0,y-1,x1-x0,3,live?'#ffe066':'#3a4a56'); if(label) text(label,x0,y-8,live?'#c9d8b0':'#5d7181',1);
+}
+function olBreaker(x,y,closed,live){
+  const c=closed?(live?'#ff5a4e':'#a8322b'):'#7cf08f';
+  if(closed) px(x-2,y-2,5,5,c); else { rect(x-2,y-2,5,5,c); px(x-1,y-1,3,3,'#071017') }
+}
+function olXfmr(x,y,live,vert){
+  const c=live?'#e8cf5a':'#4a5866';
+  if(vert){ ring(x,y-3,3,c); ring(x,y+3,3,c) } else { ring(x-3,y,3,c); ring(x+3,y,3,c) }
+}
+function olMachine(x,y,ch,live,running){
+  disc(x,y,5,'#071017'); ring(x,y,5,live?'#e8cf5a':'#4a5866');
+  text(ch,x-1,y-2,live?'#fff6c8':'#5d7181',1);
+  if(running){ const a=AT*6; px(Math.round(x+Math.cos(a)*5),Math.round(y+Math.sin(a)*5),1,1,'#ffffff') }
+}
+function drawOneLine(y0,D){
+  const W=VW, ax=auxState(), g=S.grid;
+  px(0,y0,W,D,'#071017'); px(0,y0,W,1,'#2b3742');
+  for(let x=0;x<W;x+=8) px(x,y0+1,1,D-1,'#0a1820');
+  for(let y=y0+8;y<y0+D;y+=8) px(0,y,W,1,'#0a1820');
+  const yA=y0+13, yGB=y0+36, yU=y0+Math.max(62,Math.round(D*0.6));
+  const gen=ax.gen, busA=gen||ax.offsite, lineOK=g.trip<=0&&g.lineH>0;
+  // generators on the 24 kV generator bus
+  S.turbs.forEach((t,k)=>{
+    const x=16+k*14, run=t.on&&t.h>0&&gen;
+    olMachine(x,y0+19,'G',run,run);
+    olWire([[x,y0+24],[x,y0+27]],run); olBreaker(x,y0+29,t.on&&t.h>0,run); olWire([[x,y0+31],[x,yGB]],run);
+  });
+  const stg=plantStage(), yardKV=['11','33','132','275','400','400'][stg];
+  olBus(10,124,yGB,gen,null); text((stg<2?'11':'24')+' KV GEN',10,yGB+4,gen?'#c9d8b0':'#5d7181',1);
+  // main step-up transformer and generator breaker into the switchyard
+  olWire([[124,yGB],[125,yGB]],gen); olXfmr(131,yGB,gen,false); text('GSU',126,yGB+5,'#6f8a96',1);
+  olWire([[137,yGB],[146,yGB],[146,yA+8]],gen,-1); olBreaker(146,yA+5,gen,gen); olWire([[146,yA+3],[146,yA]],gen,-1);
+  // 400 kV switchyard and the line bays out to each customer
+  olBus(140,W-8,yA,busA,yardKV+' KV SWITCHYARD');
+  // each feeder bay: a breaker onto the switchyard and, with diesels fitted, a second breaker
+  // onto the backup bus below. Only one is ever closed.
+  const yB=yA+36, fsv=S.out.fs||[], bkLive=ax.edgs>0&&ax.run;
+  if(ax.edgs>0){ olBus(226,W-12,yB,bkLive,null); text('BACKUP',198,yB-2,bkLive?'#ffb23a':'#5d7181',1) }
+  for(let i=0;i<10;i++){
+    const x=238+i*24, on=g.on[i], m=feedMode(i), fed=on&&(fsv[i]||0)>0;
+    const closed=on&&lineOK&&m==='main', live=closed&&busA;
+    olWire([[x,yA],[x,yA+4]],busA&&on); olBreaker(x,yA+7,closed,live);
+    olWire([[x,yA+10],[x,yA+16]],live); olWire([[x,yA+16],[x,yA+21]],fed);
+    if(on&&ax.edgs>0){ const bc=m==='edg';
+      olWire([[x+9,yB],[x+9,yB-3]],bkLive); olBreaker(x+9,yB-6,bc,bc&&fed);
+      olWire([[x+9,yB-9],[x+9,yA+16],[x,yA+16]],bc&&fed,-1) }
+    if(on){ px(x-1,yA+21,3,1,fed?'#e8cf5a':'#2f3d47'); px(x,yA+22,1,1,fed?'#e8cf5a':'#2f3d47') }
+    textC(FEED[i],x,yA+25,!on?'#3a4a56':m==='off'?'#6f8a96':fed?(m==='edg'?'#ffb23a':'#c9d8b0'):'#ff8b85',1);
+  }
+  // station service transformer down to the station bus
+  olWire([[176,yA],[176,yA+7]],busA&&ax.offsite); olXfmr(176,yA+12,ax.offsite,true); text('SST',182,yA+10,'#6f8a96',1);
+  olWire([[176,yA+16],[176,yU]],ax.offsite);
+  // unit auxiliary transformer off the generator bus down to the unit bus
+  const uatOn=ax.src==='UAT', unitLive=ax.src==='UAT'||ax.src==='SST';
+  olWire([[100,yGB],[100,yGB+5]],gen); olXfmr(100,yGB+11,gen,true); text('UAT',106,yGB+8,'#6f8a96',1);
+  olWire([[100,yGB+15],[100,yU-6]],gen); olBreaker(100,yU-4,uatOn,gen); olWire([[100,yU-2],[100,yU]],uatOn);
+  // 6.6 kV buses: unit bus, bus tie, station bus, safety bus
+  olBus(30,150,yU,unitLive,'6.6 KV UNIT');
+  olBreaker(158,yU,ax.src==='SST',ax.src==='SST'); olWire([[150,yU],[156,yU]],ax.src==='SST'); olWire([[160,yU],[168,yU]],ax.src==='SST');
+  olBus(168,214,yU,ax.offsite,null); text('STATION',180,yU-8,ax.offsite?'#c9d8b0':'#5d7181',1);
+  const safeLive=ax.offsite||ax.run;
+  olWire([[214,yU],[220,yU]],ax.offsite); olBreaker(222,yU,ax.offsite,ax.offsite); olWire([[224,yU],[232,yU]],ax.offsite);
+  olBus(232,338,yU,safeLive,'SAFETY BUS');
+  // loads on the unit bus: one reactor coolant pump per loop, then the feed pump
+  for(let i=0;i<U('loops');i++){
+    const x=40+i*16, p=S.pumps[i], run=unitLive&&p.s>2&&p.h>0;
+    olWire([[x,yU],[x,yU+4]],unitLive); olBreaker(x,yU+6,unitLive&&p.h>0,unitLive); olWire([[x,yU+8],[x,yU+11]],run);
+    olMachine(x,yU+16,'M',unitLive&&p.h>0,run);
+  }
+  text('REACTOR COOLANT PUMPS',30,yU+24,'#6f8a96',1);
+  { const x=140, run=unitLive&&gen; olWire([[x,yU],[x,yU+11]],unitLive); olMachine(x,yU+16,'M',unitLive,run); text('FW',x+7,yU+14,'#6f8a96',1) }
+  // decay-heat removal loads and the emergency diesels on the safety bus
+  [['RHR',246],['AFW',266]].forEach(([nm,x])=>{
+    olWire([[x,yU],[x,yU+11]],safeLive); olMachine(x,yU+16,'M',safeLive,safeLive&&(S.r.flux<5||ax.src!=='UAT'));
+    textC(nm,x,yU+24,'#6f8a96',1);
+  });
+  if(ax.edgs===0) text('NO DIESELS',290,yU+12,'#5d7181',1);
+  // the backup tie off the end of the safety bus, up to the backup bus
+  if(ax.edgs>0){ const tie=(S.out.bk||0)>0;
+    olWire([[338,yU],[344,yU],[344,yU-4]],tie); olBreaker(344,yU-7,tie,tie); olWire([[344,yU-10],[344,yA+36]],tie,-1) }
+  for(let k=0;k<ax.edgs;k++){
+    const x=296+k*16, run=ax.run;
+    olWire([[x,yU],[x,yU+4]],safeLive&&run); olBreaker(x,yU+6,run,run); olWire([[x,yU+8],[x,yU+11]],run,-1);
+    olMachine(x,yU+16,'D',run,run); textC('EDG'+(k+1),x,yU+24,run?'#ffb23a':'#6f8a96',1);
+  }
+  // legend
+  const lx=W-82, ly=yU-6;
+  px(lx,ly,5,5,'#ff5a4e'); text('CLOSED',lx+8,ly,'#6f8a96',1);
+  rect(lx+38,ly,5,5,'#7cf08f'); text('OPEN',lx+46,ly,'#6f8a96',1);
+  px(lx,ly+10,8,1,'#e8cf5a'); text('LIVE',lx+12,ly+8,'#6f8a96',1);
+  px(lx+38,ly+10,8,1,'#2f3d47'); text('DEAD',lx+50,ly+8,'#6f8a96',1);
+  const srcTxt={UAT:'HOUSE LOAD ON UAT',SST:'HOUSE LOAD ON GRID',EDG:'ON EMERGENCY DIESELS',NONE:'NO HOUSE POWER'}[ax.src];
+  text(srcTxt,lx,ly+18,ax.src==='NONE'?(Math.floor(AT*3)%2?'#ff5a4e':'#7a1d18'):ax.src==='EDG'?'#ffb23a':'#9fb3a8',1);
+}
+
+function drawGrid(){
+  const W=VW, H=VH, nf=nightF(), dk=nf>0.6;
+  // the lower band is the station's single-line diagram; the landscape sits above it
+  const D=clamp(Math.round(H*0.42),106,150), L=H-D;
+  const hy=L-Math.max(70,Math.round(L*0.42)), gy=L-28, gl=L-16;
+  ctx.save(); ctx.beginPath(); ctx.rect(0,0,W,L); ctx.clip();
+  skyFill(0,hy+1);
+  for(let x=0;x<380;x++){ const hh=4+Math.round(Math.sin(x/23)*3+Math.sin(x/9)*1.5); px(x,hy-hh,1,hh+1,dk?'#122017':'#2c4d37') }
+  px(0,hy,380,L-hy,dk?'#15251a':'#33603e');
+  for(let y=hy+4,k=0;y<gy;y+=5,k++) px(0,y,376,1,k%2?(dk?'#13221a':'#2d5838'):(dk?'#182b1f':'#3a6a45'));
+  px(0,hy+3,56,9,dk?'#0d1e2c':'#3b6f8f');
+  px(380,hy,W-380,L-hy,dk?'#0a1726':'#2e5f80');
+  for(let k=0;k<14;k++){ const wx=384+((k*37+Math.floor(AT*6))%92), wy=hy+4+((k*13)%Math.max(1,L-hy-8)); px(wx,wy,3,1,dk?'#16304a':'#6aa2c4') }
+  px(374,hy,7,L-hy,'#c9b98a'); px(380,hy,1,L-hy,'#e6dcb8');
+  drawSite(gy,dk);
+  // customers and the line out to them
+  // each town is lit by its own feeder: from the line, from the backup diesels, or not at all
+  const served=S.out.mainS||0, live=S.grid.trip<=0&&S.grid.lineH>0, fsv=S.out.fs||[];
+  const litOf=i=>{ const d=feederDem(i); return d>0?clamp((fsv[i]||0)/d,0,1):0 };
+  for(let i=0;i<10;i++) settlement(i,S.grid.on[i]&&(fsv[i]||0)>0,litOf(i),gy,hy);
+  let far=-1; for(let i=0;i<10;i++) if(S.grid.on[i]) far=i;
+  const towers=[[96,0],[114,1],[144,2],[179,3],[220,4],[266,5],[310,6],[344,7],[370,8]];
+  let prev=[[90,gy-8],[90,gy-8],[90,gy-8]];
+  towers.forEach(([tx,ti])=>{
+    const energ=ti<=far;
+    const pts=pylon(tx,gl,ti<6?24:22,energ?'#9aa6ae':'#323c44',energ?'#5a646c':'#232a30');
+    if(energ){
+      for(let k=0;k<3;k++) catenary(prev[k][0],prev[k][1],pts[k][0],pts[k][1],4,live?'#c9d2d9':'#55606a');
+      if(live&&served>0){ const q=(AT*0.6+tx*0.013)%1, a=prev[0], b=pts[0];
+        px(Math.round(a[0]+(b[0]-a[0])*q),Math.round(a[1]+(b[1]-a[1])*q+16*q*(1-q)),2,1,'#ffe66d') }
+    }
+    prev=pts;
+  });
+  if(far>=8) for(let s=0;s<16;s++){ const t=s/16; px(Math.round(372+t*44),Math.round(gl-4-t*(gl-8-hy)),2,1,live?'#7cc8ff':'#3a4d5a') }
+  gridHit.length=0;
+  for(let i=0;i<10;i++){
+    const on=S.grid.on[i], m=feedMode(i), lit=litOf(i);
+    const c=!on?'#5a6670':m==='off'?'#8a9aa6':lit>0.97?(m==='edg'?'#ffd27a':'#7cf08f'):lit>0.6?'#ffb23a':'#ff4b45';
+    const tw=textW(GRIDN[i],1);
+    px(Math.round(GRIDX[i]-tw/2-2),L-12,tw+3,8,'#0a0f13');
+    textC(GRIDN[i],GRIDX[i],L-10,c,1);
+    const l=i?Math.round((GRIDX[i-1]+GRIDX[i])/2):GRIDX[0]-10, rr=i<9?Math.round((GRIDX[i]+GRIDX[i+1])/2):W;
+    const top=i===9?0:i===8||i===6?hy-14:gy-56;
+    gridHit.push({i,x:l,y:top,w:rr-l,h:L-top});
+  }
+  ctx.restore();
+  drawOneLine(L,D);
+}
+
+/* ======================= VIEW: SUPPLY YARD ======================= */
+/* The stores building is open at one end, so its racking shows what is in stock: new
+   fuel containers, pallets of canteen supplies and crates of spares. Makeup water lives
+   in the demineralised water tank, and its sight glass shows the level. Deliveries come
+   up the road, through the barrier, and park at the dock, where the yard crew carries
+   each load in by hand and by forklift. Tankers pump straight into the tank. */
+function rack(x,y,w,levels,filled,item){
+  for(let k=0;k<levels;k++){
+    const sy=y-k*11;
+    px(x,sy,w,1,'#c96a2a');
+    for(let s=0;s<3;s++){ if(k*3+s>=filled) continue;
+      const bx=x+2+s*Math.floor((w-4)/3), bw=Math.floor((w-4)/3)-1;
+      if(item==='fuel'){ px(bx,sy-5,bw,5,'#9aa6ae'); px(bx,sy-5,1,5,'#f2c23a'); px(bx+bw-1,sy-5,1,5,'#f2c23a'); px(bx,sy-5,bw,1,'#c9d2d9') }
+      else if(item==='food'){ px(bx,sy-2,bw,2,'#2e5f86'); px(bx,sy-8,bw,6,'#a8824e'); px(bx+Math.floor(bw/2),sy-8,1,6,'#7a5a32') }
+      else { px(bx,sy-7,bw,7,'#8a6a3e'); rect(bx,sy-7,bw,7,'#4a3a22'); px(bx+1,sy-4,bw-2,1,'#4a3a22') }
+    }
+  }
+  px(x,y-levels*11+1,1,levels*11,'#2e5f86'); px(x+w-1,y-levels*11+1,1,levels*11,'#2e5f86');
+}
+function drawLogi(){
+  const W=VW, H=VH, nf=nightF(), dk=nf>0.6;
+  const fenceTop=H-124, dockTop=H-58, apron=H-50, road=H-38, roadB=H-22;
+  skyFill(0,fenceTop+20);
+  // the station beyond the fence, as big as the business has made it
+  siteSkyline(W-4,fenceTop+20,1,true);
+  px(0,fenceTop+20,W,H-fenceTop-20,'#37322d');
+  // perimeter fence: posts, chain-link and barbed wire
+  for(let x=0;x<W;x+=4){ line(x,fenceTop+4,x+4,fenceTop+20,'#4a525a'); line(x+4,fenceTop+4,x,fenceTop+20,'#3e464d') }
+  for(let x=0;x<W;x+=18){ px(x,fenceTop,2,22,'#6a747c'); line(x,fenceTop,x-3,fenceTop-3,'#6a747c') }
+  px(0,fenceTop+1,W,1,'#8a949c'); for(let x=2;x<W;x+=5) px(x,fenceTop-1,1,1,'#8a949c');
+  // stores building
+  const bx=6, bw=228, eave=H-112;
+  px(bx-2,eave-6,bw+4,6,'#4a545c'); px(bx-2,eave-6,bw+4,1,'#6a747c');
+  px(bx,eave,bw,dockTop-eave,'#566270');
+  for(let x=bx;x<bx+bw;x+=3) px(x,eave,1,dockTop-eave,'#4c5765');
+  px(bx+128,eave+3,52,9,'#1c262e'); text('STORES',bx+142,eave+5,'#e6dcb8',1);
+  // the open bay with its racking
+  const ox=bx+6, ow=104, oy=eave+8;
+  px(ox,oy,ow,dockTop-oy,'#121a1f');
+  if(dk) { ctx.globalAlpha=0.12; px(ox,oy,ow,dockTop-oy,'#ffe9a8'); ctx.globalAlpha=1 }
+  for(let x=ox+10;x<ox+ow;x+=34) px(x,oy+1,16,1,'#fff3c8');
+  const lv=Math.min(4,Math.floor((dockTop-oy-8)/11));
+  const fr=id=>Math.round(clamp(S.inv[id]/invCap(id),0,1)*lv*3);
+  rack(ox+3,dockTop-2,32,lv,fr('fuel'),'fuel');
+  rack(ox+37,dockTop-2,32,lv,fr('food'),'food');
+  rack(ox+71,dockTop-2,32,lv,fr('parts'),'parts');
+  // dock door: a roller shutter, raised while a truck is being unloaded
+  const unloading=S.dock.length&&S.crew.strike<=0&&S.dock[0].id!=='coolant';
+  const doorX=bx+136, doorW=30, doorT=eave+22;
+  px(doorX,doorT,doorW,dockTop-doorT,'#121a1f');
+  const shut=unloading?6:dockTop-doorT;
+  px(doorX,doorT,doorW,shut,'#7a8792'); for(let y=doorT+2;y<doorT+shut;y+=3) px(doorX,y,doorW,1,'#5d6a74');
+  rect(doorX-1,doorT-1,doorW+2,dockTop-doorT+1,'#2b3238');
+  // loading dock with bumpers, and the yard apron
+  px(bx,dockTop,bw,apron-dockTop,'#8a8f93'); px(bx,dockTop,bw,1,'#b0b5b8');
+  px(doorX+4,dockTop+1,4,6,'#1d1d1d'); px(doorX+doorW-8,dockTop+1,4,6,'#1d1d1d');
+  for(let x=bx+2;x<bx+bw;x+=40) px(x,dockTop+1,10,1,'#f2c23a');
+  px(0,apron,W,road-apron,'#6d7074'); for(let x=0;x<W;x+=24) px(x,apron,1,road-apron,'#5d6064');
+  // demineralised water tank with its sight glass
+  const tx=242, tw=26, tt=H-120;
+  vessel(tx,tt,tw,apron-tt,6,'#b9c4cc','#dfe7ec','#8f9aa3','#4a545c');
+  const wf=clamp(S.inv.coolant/invCap('coolant'),0,1), gl0=tt+8, glH=apron-tt-14;
+  px(tx+tw-6,gl0,3,glH,'#1d2328'); px(tx+tw-5,gl0+Math.round(glH*(1-wf)),1,Math.round(glH*wf),'#4fa3d8');
+  for(let y=tt+6;y<apron-2;y+=3) px(tx+3,y,3,1,'#6a747c');
+  text('H2O',tx+7,tt+18,'#4a545c',1);
+  // road, gate and barrier
+  px(0,road,W,roadB-road,'#2b2a29'); px(0,road,W,1,'#4a4846');
+  for(let x=0;x<W;x+=20) px(x,Math.round((road+roadB)/2),10,1,'#c9c29a');
+  px(0,roadB,W,H-roadB,'#3a4a32'); for(let x=3;x<W;x+=7) px(x,roadB+2+(x%3),1,2,'#4f6a42');
+  const gx=290;
+  px(gx,apron-22,20,22,'#9aa6ae'); px(gx-1,apron-24,22,3,'#5d6a74');
+  px(gx+3,apron-17,8,7,dk?'#ffe9a8':'#7fb0cf'); px(gx+6,apron-15,3,4,'#3a3a3a');
+  const arriving=S.orders.some(o=>o.hold<=0&&(1-o.eta/(GOODS.find(g=>g.id===o.id).eta*1.2))>0.86);
+  px(gx-4,road-8,3,9,'#5d6a74');
+  if(arriving){ for(let k=0;k<12;k++) px(gx-3+(k%2),road-8-k,2,1,k%4<2?'#ff4b45':'#eef3f6') }
+  else { for(let k=0;k<26;k++) px(gx-4-k,road-7,1,2,k%6<3?'#ff4b45':'#eef3f6') }
+  // floodlight mast
+  px(330,H-150,2,apron-H+150,'#6a747c'); px(326,H-152,10,3,'#8a949c');
+  if(dk){ ctx.globalAlpha=0.1; for(let k=0;k<20;k++) px(331-k*2,H-148+k*5,k*4+2,5,'#ffe9a8'); ctx.globalAlpha=1; px(327,H-150,8,1,'#fff3c8') }
+  // trucks: the one at the dock, the queue behind it, and those still on the road
+  const D=S.dock;
+  if(D[0]){
+    const d=D[0], f=clamp(d.left/d.qty,0,1);
+    lorry(172,apron+2,d.id,false,f,true);
+    if(d.id==='coolant'&&S.crew.strike<=0){
+      pipe([[204,apron-12],[204,apron-26],[tx,apron-26]],2,'#2b2b2b');
+      flow([[204,apron-12],[204,apron-26],[tx,apron-26]],3,0.7,'#7cc8ff');
+    }
+  }
+  // the far lane first: lorries still on their way in, or held up on the verge
+  S.orders.slice(0,3).forEach((o,k)=>{
+    const g=GOODS.find(x=>x.id===o.id), prog=clamp(1-o.eta/(g.eta*1.2),0,1);
+    if(o.hold>0){ const x=W-54; lorry(x,road+8,o.id,false,1,false); if(Math.floor(AT*2)%2) px(x+1,road+2,1,1,'#ffb23a'); return }
+    const x=Math.round(lerp(W+10,gx+6,prog))+k*6;
+    if(x<W+5) lorry(x,road+8,o.id,true,1,false);
+  });
+  // the near lane: lorries queueing for the dock, hazard lights on
+  D.slice(1,3).forEach((d,k)=>{ const x=W-62-k*58; lorry(x,roadB,d.id,false,1,false);
+    if(Math.floor(AT*2)%2){ px(x+1,roadB-6,1,1,'#ffb23a'); px(x+50,roadB-6,1,1,'#ffb23a') } });
+  // the yard crew
+  const crew=S.crew.strike>0?[]:onDuty('yard').slice(0,5);
+  const col={fuel:'#9aa6ae',food:'#a8824e',parts:'#8a6a3e',coolant:'#4fa3d8'};
+  if(S.crew.strike>0){
+    for(let k=0;k<3;k++){ const w={id:k+3,ph:k}; walker(150+k*16,apron-14,w,1,null,true) }
+    px(148,apron-24,20,8,'#e6dcb8'); text('STRIKE',149,apron-22,'#c0392b',1);
+  } else if(D[0]&&D[0].id!=='coolant'){
+    const dest={fuel:ox+18,food:ox+52,parts:ox+86}[D[0].id];
+    crew.forEach((w,k)=>{
+      const t=(AT*0.22*(0.7+w.log*0.08)+k*0.37+w.ph)%2, out=t<1, p=out?t:2-t;
+      const x=Math.round(lerp(doorX+doorW+4,dest,p));
+      walker(x,dockTop-16,w,out?-1:1,out?col[D[0].id]:null,true);
+    });
+    const fx=Math.round(lerp(doorX+doorW-2,dest+6,(Math.sin(AT*0.35)+1)/2));
+    px(fx,dockTop-9,12,7,'#e0a52a'); px(fx-2,dockTop-14,2,12,'#3a3a3a'); px(fx+2,dockTop-12,5,4,'#3a3a3a');
+    px(fx+1,dockTop-2,3,2,'#111'); px(fx+8,dockTop-2,3,2,'#111');
+    if(Math.sin(AT*0.35+1.57)<0) px(fx-6,dockTop-8,5,5,col[D[0].id]);
+  } else if(D[0]){
+    crew.forEach((w,k)=>walker(k?214+k*8:222,apron-15,w,-1,null,true));
+  } else {
+    crew.forEach((w,k)=>{ const x=Math.round(120+k*12+Math.sin(AT*0.3+w.ph)*8); walker(x,apron-15,w,Math.cos(AT*0.3+w.ph)>0?1:-1,null,true) });
+  }
+}
+
+
+/* ======================= VIEW: ENGINEERING ======================= */
+/* The drawing office. The blueprint on the wall is the plant's capacity chain — what the
+   core, the cooling, the turbines and the line can each deliver, in electrical
+   megawatts on one scale, against what your customers ask for. The shortest bar is the
+   one worth spending on. The corkboard carries the hourly ledger. */
+function capacityChain(){
+  const eff=U('turbe')/100;
+  return [
+    ['CORE',coreThermalMax()*eff],
+    ['COOLING',removalCap()*eff],
+    ['TURBINES',turbCap()],
+    ['LINE',U('line')]
+  ];
+}
+function drawRnd(){
+  const W=VW, H=VH, nf=nightF();
+  px(0,0,W,H,'#1a2530');
+  // window strip with the plant outside
+  const wy=8, wh=Math.max(18,Math.min(40,H-230));
+  const sky=nf>0.6?'#0b1428':nf>0.18?'#4a3a5a':'#7fa8c4';
+  px(8,wy,W-16,wh,sky);
+  ctx.save(); ctx.beginPath(); ctx.rect(8,wy,W-16,wh); ctx.clip();
+  siteSkyline(200,wy+wh-2,Math.min(1,wh/62),nf>0.6);
+  ctx.restore();
+  px(8,wy+wh-2,W-16,2,'#2c4d37');
+  for(let x=8;x<W-8;x+=58) px(x,wy,3,wh,'#2b3742');
+  rect(7,wy-1,W-14,wh+2,'#2b3742');
+  // blueprint
+  const top=wy+wh+8, bh=Math.max(118,H-top-62), bx=10, bw=296;
+  px(bx,top,bw,bh,'#14385a'); rect(bx,top,bw,bh,'#2b5f85');
+  for(let x=bx+8;x<bx+bw;x+=12) px(x,top+1,1,bh-2,'#174267');
+  for(let y=top+8;y<top+bh;y+=12) px(bx+1,y,bw-2,1,'#174267');
+  px(bx+3,top-3,6,6,'#c9d2d9'); px(bx+bw-9,top-3,6,6,'#c9d2d9');
+  text('CAPACITY CHAIN',bx+8,top+6,'#dff0f6',1);
+  text('ELECTRICAL MW EQUIVALENT',bx+8,top+14,'#6fa8cf',1);
+  const ch=capacityChain(), dem=S.out.demand;
+  const mx=Math.max(dem,...ch.map(c=>c[1]),0.001)*1.12;
+  let mn=Infinity; ch.forEach(c=>{ if(c[1]<mn) mn=c[1] });
+  const lx=bx+8, cx0=bx+52, cw=bw-112;
+  const rowH=Math.max(16,Math.floor((bh-40)/4));
+  ch.forEach((c,k)=>{
+    const y=top+26+k*rowH, w=Math.max(1,Math.round(cw*c[1]/mx)), lim=c[1]===mn;
+    text(c[0],lx,y+2,'#9cc8e8',1);
+    px(cx0,y,cw,8,'#103050');
+    px(cx0,y,w,8,lim?'#ffb23a':'#7cf3ff'); px(cx0,y,w,1,lim?'#ffd27a':'#c6f9ff');
+    text(mw(c[1]),cx0+cw+6,y+2,lim?'#ffb23a':'#dff0f6',1);
+    if(lim&&Math.floor(AT*1.5)%2) rect(cx0-1,y-1,w+2,10,'#ffd27a');
+  });
+  // what the customers want, as a line across the chart
+  const dx=cx0+Math.round(cw*dem/mx);
+  for(let y=top+22;y<top+26+rowH*4-6;y+=3) px(dx,y,1,2,'#ff6b5e');
+  text('DEMAND',Math.min(dx-12,cx0+cw-24),top+bh-9,'#ff8b85',1);
+  // the corkboard with the ledger
+  const kx=318, kw=W-kx-10;
+  px(kx,top,kw,bh,'#6a4a2e'); rect(kx,top,kw,bh,'#3a2a1a');
+  for(let k=0;k<30;k++) px(kx+3+((k*37)%(kw-6)),top+3+((k*23)%(bh-6)),1,1,'#5a3e26');
+  const o=S.out, rows=[['SALES',o.sales||0,1],['SPOT',o.spotInc||0,1],['WAGES',o.wages||0,-1],['UPKEEP',o.upkeep||0,-1]];
+  if(o.imp>0) rows.push(['GRID POWER',o.imp,-1]);
+  if(o.dsl>0) rows.push(['DIESEL',o.dsl,-1]);
+  const pw=kw-18, ph=Math.max(60,24+rows.length*9), pxx=kx+9, pyy=top+10;
+  px(pxx+2,pyy+2,pw,ph,'#00000044'); px(pxx,pyy,pw,ph,'#ece6d4'); disc(pxx+pw/2,pyy+2,2,'#c0392b');
+  text('PER HOUR',pxx+6,pyy+7,'#2b2b2b',1);
+  px(pxx+6,pyy+14,pw-12,1,'#b8b09a');
+  rows.forEach((r,k)=>{ const y=pyy+18+k*9;
+    text(r[0],pxx+6,y,'#4a4a4a',1);
+    const s=(r[2]>0?'+':'-')+money(Math.abs(r[1]));
+    text(s,pxx+pw-6-textW(s,1),y,r[2]>0?'#2a7a3b':'#a8322b',1) });
+  // a photo of the plant pinned below it
+  if(bh>ph+36){ const qy=pyy+ph+10; px(pxx+10,qy,34,26,'#ece6d4'); px(pxx+12,qy+2,30,18,sky);
+    vessel(pxx+18,qy+8,10,12,4,'#c6ced3','#e0e6ea','#9aa6ae','#5a646c'); px(pxx+30,qy+12,8,8,'#b9c2c8');
+    disc(pxx+27,qy+1,1,'#2e6b8f') }
+  // drafting desk in the foreground
+  const fy=H-56;
+  px(0,fy+40,W,H-fy-40,'#141d24');
+  px(120,fy+18,240,6,'#6b5a44'); px(120,fy+24,240,2,'#4a3e2e');
+  px(130,fy+26,4,H-fy-26,'#3a3128'); px(346,fy+26,4,H-fy-26,'#3a3128');
+  px(150,fy+12,90,8,'#d8dce4'); for(let k=0;k<5;k++) px(156+k*16,fy+14,10,1,'#7f93a3');
+  hvessel(250,fy+13,30,5,2,'#cfe0ef','#e9f2fa','#9fb6cb','#6a8aa8');
+  hvessel(258,fy+8,26,5,2,'#cfe0ef','#e9f2fa','#9fb6cb','#6a8aa8');
+  px(320,fy+12,5,7,'#cfe6dc'); px(325,fy+14,1,3,'#cfe6dc');
+  line(300,fy+18,292,fy-4,'#3a3a3a'); line(292,fy-4,306,fy-12,'#3a3a3a'); px(304,fy-14,9,5,'#2e5f86');
+  ctx.globalAlpha=0.12; for(let k=0;k<10;k++) px(296-k,fy-9+k*3,16+k*2,3,'#ffe9a8'); ctx.globalAlpha=1;
+  seatedWorker(196,fy+14,{id:11,ph:1.3,fat:0},true);
+  // filing cabinet and a plant
+  px(398,fy+6,26,H-fy-6,'#5d6a74'); for(let k=0;k<3;k++){ px(398,fy+10+k*12,26,1,'#3f4952'); px(408,fy+14+k*12,6,2,'#9aa6ae') }
+  px(442,fy+22,12,12,'#8a5a3c'); disc(448,fy+16,6,'#3f7a4a'); disc(444,fy+12,4,'#4f8a5a');
+}
+
+/* ============================ 5. INTERFACE ============================ */
+/* One home for each figure. The HUD carries the handful you always need: cash, its
+   hourly trend, the clock, supply against demand, core temperature, containment and
+   reputation. Each page's panel holds the controls and the detail behind them, and
+   never repeats a HUD figure. The scene above it is the picture, not a readout. */
+const VIEWS=[
+  {id:'ctrl',t:'CONTROL'},{id:'core',t:'REACTOR'},{id:'turb',t:'TURBINES'},
+  {id:'grid',t:'GRID'},{id:'logi',t:'SUPPLY'},{id:'rnd',t:'ENGINEER'}
+];
+const panel=$('panel'), tabsEl=$('tabs'), statsEl=$('stats');
+let PANEL={view:null,up:null};
+let SUPTAB='stores';
+
+function buildTabs(){
+  tabsEl.innerHTML=VIEWS.map(v=>'<button data-v="'+v.id+'" class="'+(S.view===v.id?'on':'')+'">'+v.t+'</button>').join('');
+}
+tabsEl.addEventListener('click',e=>{const b=e.target.closest('button'); if(b) setView(b.dataset.v)});
+function setView(v){ S.view=v; buildTabs(); buildPanel(); }
+
+/* --- HUD --------------------------------------------------------------- */
+function stat(label,val,col,title){
+  return '<div class="st"'+(title?' title="'+title+'"':'')+'><i>'+label+'</i><b'+(col?' style="color:'+col+'"':'')+'>'+val+'</b></div>';
+}
+function mwPair(a,b){
+  const u=v=>v>=1000?'GW':v>=1?'MW':'kW';
+  const f=v=>v>=1000?(v/1000).toFixed(v>=10000?0:1):v>=1?v.toFixed(v>=100?0:1):(v*1000).toFixed(v*1000>=100?0:1);
+  return u(a)===u(b)?f(a)+'/'+f(b)+' '+u(b):mw(a)+'/'+mw(b);
+}
+/* every alarm has a short code (lights an annunciator window) and a plain label (the band) */
+function alarmList(){
+  const r=S.r,a=[];
+  const A=(s,k,t)=>a.push({s,k,t});
+  if(S.startup) A('STRT','b','COLD START');
+  if(r.temp>1000) A('TEMP','r','CORE OVERHEATING'); else if(r.temp>820) A('TEMP','a','CORE RUNNING HOT');
+  if(r.press>pressLimit()) A('PRES','r','OVER PRESSURE'); else if(r.press>pressLimit()*0.88) A('PRES','a','HIGH PRESSURE');
+  if(r.coolant<20) A('LEVL','r','LOOP NEARLY DRY'); else if(r.coolant<45) A('LEVL','a','LOW LOOP LEVEL');
+  if(r.leak>0) A('LEAK','r','COOLANT LEAK');
+  if(r.integ<40) A('CNMT','r','CONTAINMENT FAILING'); else if(r.integ<75) A('CNMT','a','CONTAINMENT DAMAGED');
+  if(r.jam>0) A('ROD','r','RODS JAMMED');
+  if(liveAssy()===0) A('FUEL','r','NO LIVE FUEL'); else if(S.core.some(x=>x.burn>=100)) A('FUEL','a','SPENT FUEL IN CORE');
+  if(coolCap()<S.out.thermal&&S.out.thermal>0.01) A('HEAT','r','HEAT EXCEEDS COOLING');
+  else if(settleTemp()>880) A('HEAT','a','SETTLING HOT');
+  if(S.grid.trip>0) A('LINE','r','LINE TRIPPED'); else if(S.grid.lineH<55) A('LINE','a','LINE WORN');
+  const ax=auxState();
+  if(ax.src==='NONE') A('AUX','r','NO HOUSE POWER'); else if(ax.src==='EDG') A('EDG','a','RUNNING ON DIESELS');
+  if((S.out.bk||0)<(S.out.bkDem||0)*0.98) A('BKO','a','BACKUP OVERLOADED');
+  if(S.out.bypass>0.001&&S.out.served<S.out.demand*0.999) A('CAP','a','LINE AT CAPACITY');
+  if(!S.startup&&S.grid.sat<70) A('LOAD','a','CUSTOMERS SHORT');
+  if(r.xe>60) A('XENO','a','XENON BUILD-UP');
+  if(r.noise>0) A('SCAD','r','INSTRUMENTS COMPROMISED');
+  if(S.crew.strike>0) A('CREW','r','WALKOUT');
+  else if(!onDuty('ctrl').length) A('PANL','r','PANEL UNMANNED');
+  else if(crewCount()&&avgMood()<40) A('CREW','a','LOW MORALE');
+  if(S.dock.length&&!onDuty('yard').length) A('DOCK','a','LORRY WAITING');
+  if(S.jobs.length&&!onDuty('maint').length) A('MNT','a','NO MAINTENANCE CREW');
+  if(S.inv.food<=0) A('FOOD','a','CANTEEN EMPTY');
+  if(S.money<0) A('CASH','r','OVERDRAWN');
+  for(const e of S.ev.active) A(e.id.slice(0,4),'a',e.name.toUpperCase());
+  return a;
+}
+function drawHud(){
+  const r=S.r, tcol=r.temp>1000?'var(--red)':(r.temp>820?'var(--amber)':'var(--green)');
+  const net=S.out.income-S.out.spend;
+  const satc=S.startup?'var(--blue)':S.grid.sat>90?'var(--green)':(S.grid.sat>60?'var(--amber)':'var(--red)');
+  statsEl.innerHTML=
+    stat('CASH',money(S.money),S.money<0?'var(--red)':'var(--green)')+
+    stat('PER HOUR',(net>=0?'+':'')+money(net),net>=0?'var(--green)':'var(--red)')+
+    stat('DAY',S.day+' · '+String(Math.floor(S.hours)).padStart(2,'0')+':'+String(Math.floor(S.hours%1*60)).padStart(2,'0'))+
+    stat('SUPPLY / DEMAND',mwPair(S.out.served,S.out.demand),satc,'Colour shows how satisfied your customers are')+
+    stat('CORE',num(sensor(r.temp,8))+'°C',tcol)+
+    stat('CONTAINMENT',num(r.integ)+'%',r.integ<50?'var(--red)':r.integ<80?'var(--amber)':'var(--ink)')+
+    stat('REPUTATION',num(S.rep),'var(--violet)');
+  $('stageLbl').textContent=STAGES[plantStage()];
+  const all=alarmList();
+  DANGER=all.some(a=>a.k==='r');
+  $('alarmband').innerHTML=all.slice(0,8).map(a=>'<span class="alm '+a.k+(a.k==='r'?' blink':'')+'">'+(a.t||a.s)+'</span>').join('');
+  $('flash').style.opacity=SET.flash?Math.min(0.75,S.flash*0.55):0;
+}
+
+/* --- ticker ------------------------------------------------------------ */
+let tickQueue=[];
+function tickText(txt,kind){
+  tickQueue.push('<b class="e-'+(kind==='bad'?'bad':kind==='warn'?'warn':kind==='good'?'good':'info')+'">'+
+    (kind==='bad'?'!! ':kind==='warn'?'! ':'» ')+txt+'</b>');
+  if(tickQueue.length>4) tickQueue.shift();
+  $('tickertext').innerHTML=tickQueue.slice().reverse().join('  ·  ');
+}
+
+/* --- panel plumbing ---------------------------------------------------- */
+const barS=(f,c)=>'<div class="bar sm"><i style="width:'+clamp(f*100,0,100)+'%;background:'+(c||'var(--green)')+'"></i></div>';
+const row=(k,v)=>'<div class="row"><span class="k">'+k+'</span><span>'+v+'</span></div>';
+const liveRow=(id,k,v)=>'<div class="row"><span class="k">'+k+'</span><span id="L'+id+'">'+v+'</span></div>';
+function setL(id,v,col){ const e=$('L'+id); if(e){ e.textContent=v; e.style.color=col||'' } }
+function setBar(id,f,c){ const e=$('B'+id); if(e){ e.style.width=clamp(f*100,0,100)+'%'; if(c) e.style.background=c } }
+const lbar=(id,f,c)=>'<div class="bar"><i id="B'+id+'" style="width:'+clamp(f*100,0,100)+'%;background:'+(c||'var(--green)')+'"></i></div>';
+function sig(el,s,html){ if(el&&el.dataset.sig!==s){ el.dataset.sig=s; el.innerHTML=html } }
+function box(title,extra,body,id){
+  return '<div class="box"'+(id?' id="'+id+'"':'')+'><h3>'+title+(extra?'<em>'+extra+'</em>':'')+'</h3>'+body+'</div>';
+}
+const hint=t=>'<div class="hint">'+t+'</div>';
+const capt=t=>'<div class="cap">'+t+'</div>';           // a one-line explanation under a graph
+const health=(h)=>h<=0?'var(--red)':h<45?'var(--amber)':'var(--green)';
+
+panel.addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b||!b.dataset.a||b.disabled) return;
+  const a=b.dataset.a, i=+b.dataset.i;
+  if(a==='scram') scram();
+  else if(a==='rod'){ if(S.r.jam<=0&&S.r.scramT<=0) S.r.rods=clamp(S.r.rods+ +b.dataset.d,0,100); setSliders() }
+  else if(a==='vent') S.r.vent=S.r.vent>0?0:1;
+  else if(a==='top') topUpCoolant();
+  else if(a==='seal') sealLeak();
+  else if(a==='feed') emergencyFeed();
+  else if(a==='pumpfix') repairPump(i);
+  else if(a==='allpump'){ const v=+b.dataset.d; for(let k=0;k<U('loops');k++) S.pumps[k].s=v; setSliders() }
+  else if(a==='assy') replaceAssembly(i);
+  else if(a==='refuelall'){ for(let k=0;k<S.core.length;k++) if((!S.core[k].on||S.core[k].burn>=100)&&S.inv.fuel>0) replaceAssembly(k) }
+  else if(a==='integ') overhaulCore();
+  else if(a==='ton') S.turbs[i].on=!S.turbs[i].on;
+  else if(a==='tfix') repairTurb(i);
+  else if(a==='tsell') sellTurbine(i);
+  else if(a==='tbuy') buyTurbine(i);
+  else if(a==='conn') connectTier(i);
+  else if(a==='fdr') setFeeder(i,b.dataset.g);
+  else if(a==='linefix') repairLine();
+  else if(a==='order') order(b.dataset.g,+b.dataset.d);
+  else if(a==='hireW') hireWorker(i);
+  else if(a==='sack') dismissWorker(i);
+  else if(a==='duty') setDuty(i,b.dataset.g);
+  else if(a==='up') buyUpgrade(b.dataset.g);
+  else if(a==='sub') SUPTAB=b.dataset.g;
+  else if(a==='view') setView(b.dataset.g);
+  buildPanel();
+});
+function setSliders(){
+  const rs=$('rodS'); if(rs) rs.value=Math.round(S.r.rods);
+  for(let i=0;i<6;i++){ const e=$('pmp'+i); if(e) e.value=Math.round(S.pumps[i].s) }
+}
+function buildPanel(){
+  const keep=panel.scrollTop, same=PANEL.view===S.view;
+  PANEL.view=S.view;
+  const v=S.view;
+  if(v==='ctrl') pCtrl(); else if(v==='core') pCore(); else if(v==='turb') pTurb();
+  else if(v==='grid') pGrid(); else if(v==='logi') pLogi(); else pRnd();
+  if(same) panel.scrollTop=keep;
+}
+
+/* ---- CONTROL ROOM: operate the reactor ---- */
+function pCtrl(){
+  const r=S.r, wasStartup=S.startup;
+  let h='';
+  if(wasStartup) h+=box('COLD START','grace period',
+    hint('The plant was handed over dark. Nothing is held against you — no customers waiting, no incidents — until you first put power on the house.')+
+    '<div id="startchk" style="margin-top:5px"></div>');
+  h+=box('REACTIVITY','',
+    '<div class="slide"><span class="k">Rods in</span><input type="range" id="rodS" min="0" max="100" step="1" value="'+Math.round(r.rods)+'" aria-label="Control rod insertion"><b id="LrodV">'+num(r.rods)+'%</b></div>'+
+    '<div class="grid4" style="margin-top:5px">'+
+      '<button data-a="rod" data-d="-10">OUT 10</button><button data-a="rod" data-d="-2">OUT 2</button>'+
+      '<button data-a="rod" data-d="2">IN 2</button><button data-a="rod" data-d="10">IN 10</button></div>'+
+    '<div style="margin-top:6px">'+
+    liveRow('f','Neutron flux',num(r.flux,1)+'%')+
+    liveRow('p','Vessel pressure',num(r.press)+' / '+num(pressLimit())+' bar')+
+    liveRow('xe','Xenon poisoning',num(r.xe))+
+    liveRow('dh','Decay heat',num((r.decay||0)*100,1)+'% of rating')+'</div>'+
+    '<div id="jam"></div>'+
+    '<button class="b-bad wide" style="margin-top:6px" data-a="scram">SCRAM — DRIVE ALL RODS IN</button>');
+  let loops='';
+  for(let i=0;i<U('loops');i++){
+    const p=S.pumps[i];
+    loops+='<div class="slide"><span class="k">Loop '+(i+1)+'</span>'+
+      '<input type="range" id="pmp'+i+'" min="0" max="100" value="'+Math.round(p.s)+'" aria-label="Loop '+(i+1)+' pump speed">'+
+      '<b id="Lpmp'+i+'">'+num(p.s)+'%</b></div>'+
+      (p.h<80?'<div class="row" style="margin:-2px 0 3px"><span class="k">pump '+(i+1)+' worn</span><span style="color:'+health(p.h)+'">'+num(p.h)+'% condition</span></div>':'')+
+      (p.h<70?'<button class="b-warn wide" style="margin-bottom:6px" data-a="pumpfix" data-i="'+i+'">OVERHAUL PUMP '+(i+1)+' · '+money(120+U('pumpt')*4)+' + 1 KIT</button>':'');
+  }
+  h+=box('COOLING','',loops+
+    '<div class="grid3"><button data-a="allpump" data-d="0">ALL 0</button>'+
+    '<button data-a="allpump" data-d="60">ALL 60</button><button data-a="allpump" data-d="100">ALL 100</button></div>'+
+    '<div style="margin-top:7px">'+
+    '<div class="row"><span class="k">Heat balance</span><span id="Lhb"></span></div>'+lbar('hb',0,'var(--green)')+
+    capt('Heat the core makes, against what the pumps can carry away at this speed. Past the end of the bar, the core heats up.')+
+    liveRow('settle','Core will settle at','')+'</div>'+
+    capt('Where core temperature is heading if nothing changes.'));
+  h+=box('PRIMARY LOOP','',
+    '<div class="row"><span class="k">Coolant level</span><span id="Llvl">'+num(r.coolant)+'%</span></div>'+lbar('lvl',r.coolant/100,'var(--blue)')+
+    capt('Water in the primary loop. Below 35% cooling weakens; at zero the fuel is uncovered.')+
+    '<div class="grid2">'+
+      '<button data-a="top">TOP UP · '+num(Math.min(100-r.coolant,S.inv.coolant))+' kL</button>'+
+      '<button class="'+(r.vent>0?'b-warn':'')+'" data-a="vent">'+(r.vent>0?'STOP VENTING':'VENT PRESSURE')+'</button></div>'+
+    (r.leak>0?'<button class="b-bad wide" style="margin-top:4px" data-a="seal">SEAL THE LEAK · 1 KIT</button>':'')+
+    (r.coolant<30?'<button class="b-warn wide" style="margin-top:4px" data-a="feed">EMERGENCY RIVER FEED · COSTS REPUTATION</button>':''));
+  h+=box('INCIDENTS','','<div id="situ"></div>');
+  panel.innerHTML=h;
+  const rs=$('rodS');
+  rs.addEventListener('input',()=>{ if(S.r.jam>0||S.r.scramT>0){ rs.value=Math.round(S.r.rods); return } S.r.rods=+rs.value });
+  for(let i=0;i<U('loops');i++){ const e=$('pmp'+i); e.addEventListener('input',()=>{ S.pumps[i].s=+e.value }) }
+  PANEL.up=()=>{
+    if(S.startup!==wasStartup){ buildPanel(); return }
+    const r=S.r;
+    if(wasStartup) sig($('startchk'),startupSteps().map(s=>s[1]?1:0).join(),
+      startupSteps().map((s,i)=>'<div style="line-height:1.3;margin:1px 0;color:'+(s[1]?'var(--green)':'var(--dim)')+'">'+
+        (s[1]?'[X] ':'[&nbsp;&nbsp;] ')+(i+1)+'. '+s[0]+'</div>').join(''));
+    $('LrodV').textContent=num(r.rods)+'%';
+    for(let i=0;i<U('loops');i++) setL('pmp'+i,num(S.pumps[i].s)+'%');
+    setL('f',num(sensor(r.flux,1),1)+'%');
+    setL('p',num(sensor(r.press,2))+' / '+num(pressLimit())+' bar',r.press>pressLimit()*0.9?'var(--red)':'');
+    setL('xe',num(r.xe),r.xe>50?'var(--amber)':'');
+    setL('dh',num((r.decay||0)*100,1)+'% of rating');
+    const cap=coolCap(), th=S.out.thermal, f=cap>0?th/cap:1;
+    setL('hb',mw(th)+' of '+mw(cap),f>1?'var(--red)':f>0.9?'var(--amber)':'');
+    setBar('hb',f,f>1?'var(--red)':f>0.9?'var(--amber)':'var(--green)');
+    const st=settleTemp();
+    setL('settle',st>=2599?'RUNAWAY':num(st)+' °C',st>1000?'var(--red)':st>820?'var(--amber)':'var(--green)');
+    setL('lvl',num(r.coolant)+'%',r.coolant<30?'var(--red)':'');
+    setBar('lvl',r.coolant/100,r.coolant<30?'var(--red)':'var(--blue)');
+    sig($('jam'),String(r.jam>0),r.jam>0?'<div class="hint" style="color:var(--red);margin-top:4px">Rod drive jammed — the rods will not move until it frees.</div>':'');
+    sig($('situ'),S.ev.active.map(e=>e.id+num(e.until)).join()+'|'+num(r.noise),situHtml());
+  };
+}
+function situHtml(){
+  let h='';
+  for(const e of S.ev.active) h+='<div class="row"><span class="k" style="color:var(--amber)">'+e.name+'</span><span>'+num(e.until)+'h left</span></div>';
+  if(S.r.noise>0) h+='<div class="row"><span class="k" style="color:var(--red)">Instruments compromised</span><span>'+num(S.r.noise)+'h left</span></div>';
+  return h||'<div class="no">Nothing out of the ordinary.</div>';
+}
+
+/* ---- REACTOR: fuel and containment ---- */
+function pCore(){
+  const r=S.r, spent=S.core.filter(a=>!a.on||a.burn>=100).length, canFuel=r.flux<=14;
+  let h='';
+  h+=box('FUEL',liveAssy()+' of '+S.core.length+' positions live',
+    row('Rating per assembly',U('fuel')+' MWt')+
+    row('Core rating',mw(coreThermalMax()))+
+    row('Spare assemblies in store',num(S.inv.fuel))+
+    '<div id="fuelst" class="hint" style="margin-top:4px"></div>'+
+    '<button class="b-go wide" style="margin-top:5px" data-a="refuelall"'+((spent&&S.inv.fuel>0&&canFuel)?'':' disabled')+'>LOAD FRESH FUEL ('+Math.min(spent,S.inv.fuel)+')</button>');
+  let tiles='';
+  S.core.forEach((a,i)=>{
+    const dead=!a.on||a.burn>=100, c=dead?'var(--red)':a.burn>80?'var(--amber)':'var(--green)';
+    tiles+='<button class="tile" data-a="assy" data-i="'+i+'"'+(dead&&S.inv.fuel>0&&canFuel?'':' disabled')+
+      ' title="Position '+(i+1)+(dead?' — spent':' — '+num(a.burn)+'% burnt')+'">'+
+      '<i style="height:'+(dead?100:a.burn)+'%;background:'+c+'"></i><span>'+(dead?'—':num(a.burn))+'</span></button>';
+  });
+  h+=box('ASSEMBLIES','burn-up %','<div class="tiles">'+tiles+'</div>'+
+    capt('One tile per fuel position. The number and fill show how much of its fuel is burnt; a red tile is spent. Click a red tile to load fresh fuel once flux is under 14%.'));
+  h+=box('CONTAINMENT','',
+    row('Vessel rating',num(pressLimit())+' bar')+
+    hint('Integrity is shown in the top bar. Repairs restore up to 35% and need the core near shutdown.')+
+    '<button class="b-warn wide" style="margin-top:5px" data-a="integ"'+(r.integ>=99.5?' disabled':'')+'>REPAIR · '+money(900+coreThermalMax()*2.5)+' + 3 KITS</button>');
+  panel.innerHTML=h;
+  PANEL.up=()=>{
+    const ok=S.r.flux<=14;
+    sig($('fuelst'),String(ok),ok?'<span style="color:var(--green)">Flux is low enough to refuel.</span>':'Bring flux under 14% before you open the core.');
+  };
+}
+
+/* ---- TURBINES ---- */
+function pTurb(){
+  let h='';
+  h+=box('GENERATION','',
+    liveRow('ts','Steam from the reactor',mw(S.out.thermal))+
+    liveRow('tg','Generated',mw(S.out.gross))+
+    liveRow('tn','Sent to the switchyard',mw(S.out.net))+
+    capt('The difference is the plant\'s own house load — see Auxiliary power on the Grid page.')+
+    liveRow('tl','Limited by','')+
+    row('Conversion efficiency',U('turbe')+'%')+
+    '<div class="row"><span class="k">On line / installed</span><span>'+mwPair(turbCap(),turbCapRaw())+'</span></div>'+
+    barS(turbCapRaw()>0?turbCap()/turbCapRaw():0,'var(--blue)')+
+    capt('Turbine capacity able to run now, out of everything installed. Stopped and broken sets drop out.'));
+  let list='';
+  S.turbs.forEach((t,i)=>{
+    const M=TURBS[t.m];
+    list+='<div class="item"><div class="nm"><span>'+(i+1)+' · '+M.name+'</span>'+
+      '<span class="tag '+(t.on?(t.h<30?'t-bad':'t-on'):'t-off')+'">'+(t.on?'ONLINE':'OFFLINE')+'</span></div>'+
+      '<div class="row"><span class="k">'+mw(M.cap)+' set</span><span style="color:'+health(t.h)+'">'+num(t.h)+'% condition</span></div>'+
+      barS(t.h/100,health(t.h))+
+      '<div class="grid3"><button data-a="ton" data-i="'+i+'">'+(t.on?'STOP':'START')+'</button>'+
+      '<button class="b-warn" data-a="tfix" data-i="'+i+'"'+(t.h>97?' disabled':'')+' title="'+money(turbCost(t.m)*0.09)+' + 2 kits">FIX</button>'+
+      '<button data-a="tsell" data-i="'+i+'">SCRAP</button></div></div>';
+  });
+  h+=box('SETS',S.turbs.length+' of 8 bays',capt('Each bar is a set\'s condition. Running wears it down; under 30% it starts to trip. FIX restores it with parts kits.')+list);
+  let buy='';
+  TURBS.forEach((M,i)=>{
+    const ok=S.money>=turbCost(i)&&S.turbs.length<8;
+    buy+='<div class="row" style="margin:3px 0"><span class="k">'+M.name+' · '+mw(M.cap)+'</span>'+
+      '<button class="'+(ok?'b-go':'')+'" data-a="tbuy" data-i="'+i+'"'+(ok?'':' disabled')+'>'+money(turbCost(i))+'</button></div>';
+  });
+  h+=box('INSTALL A SET','',buy);
+  panel.innerHTML=h;
+  PANEL.up=()=>{
+    setL('ts',mw(S.out.thermal)); setL('tg',mw(S.out.gross)); setL('tn',mw(S.out.net));
+    const steamLim=S.out.thermal*(U('turbe')/100)<turbCap()*0.99;
+    setL('tl',S.out.thermal<0.0005?'—':steamLim?'steam supply':'turbines',steamLim?'':'var(--amber)');
+  };
+}
+
+/* ---- GRID ---- */
+function pGrid(){
+  let h='';
+  h+=box('NETWORK','',
+    '<div class="row"><span class="k">Customer satisfaction</span><span id="Lsat"></span></div>'+lbar('sat',0,'var(--green)')+
+    capt('How much of their demand customers have been getting. Above 82% your reputation grows; below, it falls.')+
+    '<div class="row"><span class="k">Line loading</span><span id="Lld"></span></div>'+lbar('ld',0,'var(--blue)')+
+    capt('Power on the line against its rating. A full line wastes everything above it.')+
+    liveRow('gsp','Spot sales','')+
+    liveRow('gby','Unsold surplus','')+
+    row('Line losses',U('hv')+'%')+
+    row('Average tariff',money(rateNow())+'/MWh')+
+    row('Reputation multiplier','x'+num(repMul(),2))+
+    '<div class="row" style="margin-top:4px"><span class="k">Line condition</span><span id="Llh"></span></div>'+lbar('lh',S.grid.lineH/100,'var(--green)')+
+    capt('Storms and age wear the line. At zero it trips, and nothing reaches your customers.')+
+    (S.grid.lineH<97?'<button class="b-warn wide" data-a="linefix">REPAIR SWITCHYARD · '+money(200+U('line')*6)+' + 1 KIT</button>':''));
+  const dsl=S.up.diesel, dmax=dsl>=UPGBY.diesel.vals.length-1;
+  h+=box('AUXILIARY POWER','',
+    liveRow('axs','Fed from','')+
+    liveRow('axl','House load',mw(S.out.parasite))+
+    liveRow('axo','Offsite power','')+
+    liveRow('axd','Emergency diesels','')+
+    (S.up.diesel?liveRow('axk','Diesel load',''):'')+
+    liveRow('axc','Grid power cost','')+
+    (S.up.diesel?liveRow('axf','Diesel fuel cost',''):'')+
+    capt('The plant runs its own pumps and fans. Generating, it feeds them itself through the unit transformer. Shut down, it buys power from the grid. Lose the grid as well and only the diesels keep the safety bus alive.')+
+    (dmax?'':'<button class="'+(S.money>=upCost('diesel')?'b-go':'')+' wide" data-a="up" data-g="diesel"'+(S.money>=upCost('diesel')?'':' disabled')+'>'+
+      (dsl?'ADD A DIESEL':'FIT EMERGENCY DIESELS')+' · '+money(upCost('diesel'))+'</button>'));
+  let list=''; const ax0=auxState();
+  TIERS.forEach((T,i)=>{
+    const on=S.grid.on[i], can=S.rep>=T.rep&&S.money>=tierCost(i);
+    const m=feedMode(i), tg=!on?(can?'t-warn':'t-off'):m==='main'?'t-on':m==='edg'?'t-warn':'t-bad';
+    list+='<div class="item"><div class="nm"><span>'+T.name+'</span>'+
+      '<span class="tag '+tg+'">'+(!on?'NOT CONNECTED':m==='main'?'ON MAIN':m==='edg'?'ON BACKUP':'SWITCHED OFF')+'</span></div>'+
+      '<div class="row"><span class="k">'+T.w+'</span><span>'+mw(T.demand)+'</span></div>'+
+      row('Tariff',money(T.rate)+'/MWh')+
+      (on?liveRow('fd'+i,'Receiving','')+'<div class="fsw" role="group" aria-label="'+T.name+' feeder">'+
+        [['main','MAIN'],['edg','BACKUP'],['off','OFF']].map(([k,l])=>'<button class="m-'+k+(m===k?' on':'')+'" aria-pressed="'+(m===k)+'" data-a="fdr" data-i="'+i+'" data-g="'+k+'"'+(k==='edg'&&!ax0.edgs&&m!=='edg'?' disabled':'')+'>'+l+'</button>').join('')+'</div>':'')+
+      (on?'':(S.rep<T.rep?'<div class="hint" style="color:var(--amber)">Needs reputation '+T.rep+' — you have '+num(S.rep)+'.</div>':'')+
+        '<button class="'+(can?'b-go':'')+' wide" style="margin-top:4px" data-a="conn" data-i="'+i+'"'+(can?'':' disabled')+'>CONNECT · '+money(tierCost(i))+'</button>')+
+      '</div>';
+  });
+  h+=box('CUSTOMERS',tiersOn()+' of 10',
+    capt('Every customer has its own feeder breaker. MAIN feeds them from the station; short of power, the switchyard cuts the newest contract first. BACKUP islands them onto your diesels, so they stay lit through a line trip, at '+money(DIESEL_PRICE)+'/MWh of diesel. OFF opens the breaker: a planned outage, resented less than a blackout.')+list);
+  panel.innerHTML=h;
+  PANEL.up=()=>{
+    const sat=S.grid.sat;
+    setL('sat',S.startup?'not counted yet':num(sat)+'%',S.startup?'var(--blue)':sat>90?'':sat>60?'var(--amber)':'var(--red)');
+    setBar('sat',S.startup?1:sat/100,S.startup?'var(--blue)':sat>90?'var(--green)':sat>60?'var(--amber)':'var(--red)');
+    const thru=Math.min(S.out.net,U('line')), cap=U('line');
+    setL('ld',mwPair(thru,cap),thru>=cap*0.999&&S.out.bypass>0.001?'var(--amber)':'');
+    setBar('ld',cap>0?thru/cap:0,thru>=cap*0.999?'var(--amber)':'var(--blue)');
+    setL('gsp',mw(S.out.spill));
+    setL('gby',mw(S.out.bypass),S.out.bypass>0.001?'var(--amber)':'');
+    setL('lh',S.grid.trip>0?'tripped':num(S.grid.lineH)+'%',S.grid.trip>0||S.grid.lineH<50?'var(--red)':'');
+    setBar('lh',S.grid.lineH/100,S.grid.lineH<50?'var(--red)':'var(--green)');
+    const ax=auxState();
+    setL('axs',{UAT:'unit transformer',SST:'station transformer',EDG:'emergency diesels',NONE:'nothing'}[ax.src],
+      ax.src==='NONE'?'var(--red)':ax.src==='EDG'?'var(--amber)':'');
+    setL('axl',mw(S.out.parasite));
+    setL('axo',ax.offsite?'available':'lost',ax.offsite?'':'var(--red)');
+    setL('axd',ax.edgs?ax.edgs+' × '+mw(edgSetMW())+(ax.run?' running':' on standby'):'none fitted',ax.edgs?(ax.run?'var(--amber)':''):'var(--dim)');
+    const dl=(S.out.bk||0)+(ax.src==='EDG'?Math.min(S.out.parasite,edgCap()):0);
+    setL('axk',mwPair(dl,edgCap()),(S.out.bk||0)<(S.out.bkDem||0)*0.98?'var(--red)':'');
+    setL('axf',(S.out.dsl||0)>0?money(S.out.dsl)+'/h':'nothing',(S.out.dsl||0)>0?'var(--amber)':'');
+    for(let i=0;i<10;i++){ if(!S.grid.on[i]) continue; const d=feederDem(i), v=(S.out.fs||[])[i]||0, m=feedMode(i);
+      setL('fd'+i,m==='off'?'breaker open':mwPair(v,d),m==='off'?'var(--dim)':v>=d*0.98?'':v>d*0.6?'var(--amber)':'var(--red)') }
+    setL('axc',(S.out.imp||0)>0?money(S.out.imp)+'/h':S.startup&&ax.src==='SST'?'free while cold':'nothing');
+  };
+}
+
+/* ---- SUPPLY: stores, crew, hiring ---- */
+const SHORTG={fuel:'Fuel',coolant:'Water',food:'Canteen',parts:'Parts'};
+function pLogi(){
+  let h='<div class="seg" role="tablist">'+
+    [['stores','STORES'],['crew','CREW · '+crewCount()],['hire','HIRING · '+S.crew.pool.length]].map(t=>
+      '<button role="tab" aria-selected="'+(SUPTAB===t[0])+'" class="'+(SUPTAB===t[0]?'on':'')+'" data-a="sub" data-g="'+t[0]+'">'+t[1]+'</button>').join('')+'</div>';
+  if(SUPTAB==='stores'){
+    let ord='';
+    GOODS.forEach(g=>{
+      const price=goodPrice(g), f=S.inv[g.id]/invCap(g.id);
+      ord+='<div class="item"><div class="nm"><span>'+g.name+'</span><span>'+num(S.inv[g.id])+' / '+num(invCap(g.id))+' '+g.unit+'</span></div>'+
+        barS(f,f<0.15?'var(--red)':'var(--green)')+
+        '<div class="row"><span class="k">'+money(price)+' per '+g.unit+' · ~'+g.eta+'h</span></div>'+
+        '<div class="grid3">'+[1,5,25].map(m=>'<button data-a="order" data-g="'+g.id+'" data-d="'+m+'"'+(S.money>=price*g.pack*m?'':' disabled')+
+          ' title="'+money(price*g.pack*m)+'">+'+(g.pack*m)+'</button>').join('')+'</div></div>';
+    });
+    h+=box('ORDER SUPPLIES','store size x'+U('store'),capt('Each bar is stock on hand against the size of your store. Prices and lead times are per unit.')+ord);
+    h+=box('AT THE DOCK','','<div id="docklist"></div>'+capt('Each bar fills as the yard crew carries the load into the store.'));
+    h+=box('ON THE ROAD','','<div id="ordlist"></div>'+capt('Each bar is how far along the road that lorry is.'));
+  } else if(SUPTAB==='crew'){
+    const pw=d=>{ const v=dutyPower(d); return '<b style="font-weight:400;color:'+(v>0?'var(--green)':'var(--red)')+'">'+num(v,1)+'</b>' };
+    h+=box('SHIFT STRENGTH','',
+      '<div class="grid3" style="text-align:center"><span class="k">Panel '+pw('ctrl')+'</span><span class="k">Maint '+pw('maint')+'</span><span class="k">Yard '+pw('yard')+'</span></div>'+
+      row('Wage bill',money(wageBill())+'/h')+row('Canteen use',crewCount()+' crates a day')+
+      (S.crew.strike>0?'<div class="hint" style="color:var(--red)">Walkout — '+num(S.crew.strike)+'h left. Keep the canteen stocked and rest them.</div>':
+       hint('Off shift is half pay and sheds fatigue. A tired worker is worth much less than their rating.')));
+    let roster='';
+    if(!crewCount()) roster='<div class="no">Nobody on the books. Look in Hiring.</div>';
+    S.crew.workers.forEach(w=>{
+      const t=TRAITBY[w.trait];
+      roster+='<div class="item"><div class="nm"><span>'+wName(w)+'</span><span class="muted">'+money(w.wage)+'/h</span></div>'+
+        '<div class="hint">'+t.name+' · reactor '+w.rx+' · mech '+w.mech+' · yard '+w.log+'</div>'+
+        '<div class="grid2" style="margin:3px 0 4px;gap:8px"><div><span class="k">Morale</span>'+barS(w.mood/100,w.mood<35?'var(--red)':w.mood<60?'var(--amber)':'var(--green)')+'</div>'+
+        '<div><span class="k">Fatigue</span>'+barS(w.fat/100,w.fat>75?'var(--red)':w.fat>45?'var(--amber)':'var(--blue)')+'</div></div>'+
+        '<div class="grid4">'+DUTIES.map(d=>'<button class="'+(w.duty===d.id?'b-go':'')+'" data-a="duty" data-i="'+w.id+'" data-g="'+d.id+'">'+d.short+'</button>').join('')+'</div>'+
+        '<button class="wide quiet" data-a="sack" data-i="'+w.id+'">DISMISS</button></div>';
+    });
+    h+=box('ROSTER','',capt('Morale drops when the canteen runs short or someone is worked too hard. Fatigue builds on shift and clears off it. Both cut what a worker really gets done.')+roster);
+    h+=box('MAINTENANCE BOARD','','<div id="joblist"></div>'+capt('Each bar is how far along a repair is. More, and better, maintenance crew finish sooner.'));
+  } else {
+    let pool='';
+    S.crew.pool.forEach((w,i)=>{
+      const t=TRAITBY[w.trait], fee=hireFee(w), ok=S.money>=fee&&crewCount()<10;
+      pool+='<div class="item"><div class="nm"><span>'+wName(w)+'</span><span class="muted">'+money(w.wage)+'/h</span></div>'+
+        '<div class="hint">'+t.name+' — '+t.blurb+'</div>'+
+        '<div class="hint" style="color:var(--ink)">reactor '+w.rx+' · mech '+w.mech+' · yard '+w.log+' · stamina '+w.stam+'</div>'+
+        '<button class="'+(ok?'b-go':'')+' wide" style="margin-top:4px" data-a="hireW" data-i="'+i+'"'+(ok?'':' disabled')+'>TAKE THEM ON · '+money(fee)+'</button></div>';
+    });
+    h+=box('LOOKING FOR WORK','<span id="Lpool">new faces in '+num(S.crew.poolT)+'h</span>',pool||'<div class="no">Nobody at the gate today.</div>');
+  }
+  panel.innerHTML=h;
+  PANEL.up=()=>{
+    if($('Lpool')) $('Lpool').textContent='new faces in '+num(S.crew.poolT)+'h';
+    sig($('docklist'),S.dock.map(d=>d.id+num(d.left)).join()+'|'+num(yardRate(),1),
+      S.dock.length?S.dock.map((d,i)=>{
+        const g=GOODS.find(x=>x.id===d.id);
+        return '<div class="row"><span class="k">'+(i?'Waiting · ':'Unloading · ')+SHORTG[d.id]+'</span><span>'+num(Math.max(0,d.left))+' of '+d.qty+' '+g.unit+'</span></div>'+
+          barS(1-clamp(d.left/d.qty,0,1),i?'var(--dim)':'var(--amber)');
+      }).join('')+hint('Yard crew moving '+num(yardRate(),1)+' '+(S.dock[0]?GOODS.find(x=>x.id===S.dock[0].id).unit:'units')+' an hour.'+(S.dock.length>1?' Queued lorries are charging demurrage.':''))
+      :'<div class="no">Nothing at the dock.</div>');
+    sig($('ordlist'),S.orders.map(o=>o.id+num(o.eta)+num(o.hold)).join(),
+      S.orders.length?S.orders.map(o=>{
+        const g=GOODS.find(x=>x.id===o.id);
+        return '<div class="row"><span class="k">'+SHORTG[o.id]+' · '+o.qty+' '+g.unit+'</span><span>'+
+          (o.hold>0?'<span style="color:var(--red)">held '+num(o.hold)+'h</span>':num(Math.max(0,o.eta))+'h')+'</span></div>'+
+          barS(1-clamp(o.eta/(g.eta*1.2),0,1),'var(--blue)');
+      }).join(''):'<div class="no">Nothing on the road.</div>');
+    sig($('joblist'),S.jobs.map(j=>j.tag+num(j.prog)).join()+'|'+num(skill(),2),
+      S.jobs.length?S.jobs.map(j=>row(j.name,num(j.prog)+'%')+barS(j.prog/100,'var(--blue)')).join('')+
+        hint('Working at x'+num(skill(),2)+' speed.')
+      :'<div class="no">No repairs waiting.</div>');
+  };
+}
+
+/* ---- ENGINEERING: upgrades (the capacity chain is on the drawing-office wall) ---- */
+function pRnd(){
+  const cats=[];
+  UPG.forEach(u=>{ if(!cats.includes(u.cat)) cats.push(u.cat) });
+  let h=box('WHERE TO SPEND','',hint('The blueprint above compares what each stage of the plant can deliver. Widen the shortest bar first.'));
+  // on a narrow screen the blueprint's lettering is too small to read, so the chain is repeated here
+  const ch=capacityChain(); let mn=Infinity; ch.forEach(c=>{ if(c[1]<mn) mn=c[1] });
+  h+='<div class="narrowonly">'+box('CAPACITY CHAIN','electrical MW',
+    ch.map(c=>row(c[0][0]+c[0].slice(1).toLowerCase(),'<span style="color:'+(c[1]===mn?'var(--amber)':'var(--ink)')+'">'+mw(c[1])+(c[1]===mn?' · limit':'')+'</span>')).join(''))+'</div>';
+  cats.forEach(c=>{
+    let body='';
+    UPG.filter(u=>u.cat===c).forEach(u=>{
+      const lv=S.up[u.id], maxed=upMax(u.id), c2=upCost(u.id), ok=S.money>=c2;
+      body+='<div class="item"><div class="nm"><span>'+u.name+'</span><span class="muted">'+lv+' / '+(u.vals.length-1)+'</span></div>'+
+        hint(u.desc)+
+        (maxed?'<div class="row"><span class="k">'+u.vals[lv]+u.unit+'</span><span class="tag t-on">FULLY DEVELOPED</span></div>'
+          :row('Now',u.vals[lv]+u.unit)+
+           '<button class="'+(ok?'b-go':'')+' wide" data-a="up" data-g="'+u.id+'"'+(ok?'':' disabled')+'>TO '+u.vals[lv+1]+u.unit+' · '+money(c2)+'</button>')+
+        '</div>';
+    });
+    h+=box(c.toUpperCase(),'',body);
+  });
+  panel.innerHTML=h;
+  PANEL.up=null;
+}
+
+/* --- canvas clicks ----------------------------------------------------- */
+cv.addEventListener('click',e=>{
+  const rb=cv.getBoundingClientRect();
+  const scale=Math.min(rb.width/VW,rb.height/VH);
+  const ox=(rb.width-VW*scale)/2, oy=(rb.height-VH*scale)/2;
+  const x=(e.clientX-rb.left-ox)/scale, y=(e.clientY-rb.top-oy)/scale;
+  const inside=h=>x>=h.x&&x<=h.x+h.w&&y>=h.y&&y<=h.y+h.h;
+  if(S.view==='core'){
+    for(const hh of coreHit) if(inside({x:hh.x-1,y:hh.y,w:hh.w+2,h:hh.h})){
+      const sp=hh.idxs.find(k=>!S.core[k].on||S.core[k].burn>=100);
+      if(sp!==undefined) replaceAssembly(sp);
+      else { const b=hh.idxs.reduce((s,k)=>s+S.core[k].burn,0)/Math.max(1,hh.idxs.length);
+        logMsg('Positions '+(hh.idxs[0]+1)+(hh.idxs.length>1?'–'+(hh.idxs[hh.idxs.length-1]+1):'')+': '+num(b)+'% burnt up on average, still producing.','info') }
+      buildPanel(); return;
+    }
+  } else if(S.view==='turb'){
+    for(const hh of turbHit) if(inside(hh)){
+      const t=S.turbs[hh.i]; t.on=!t.on;
+      logMsg(TURBS[t.m].name+' (set '+(hh.i+1)+')'+(t.on?' brought online.':' taken offline.'),'info');
+      buildPanel(); return;
+    }
+  } else if(S.view==='grid'){
+    for(const hh of gridHit) if(inside(hh)){
+      if(!S.grid.on[hh.i]) connectTier(hh.i);
+      else logMsg(TIERS[hh.i].name+' — '+TIERS[hh.i].w+', '+mw(TIERS[hh.i].demand)+' at '+money(TIERS[hh.i].rate)+'/MWh.','info');
+      buildPanel(); return;
+    }
+  } else if(S.view==='ctrl'){
+    if(ctrlHit&&inside(ctrlHit)) scram();
+  }
+});
+
+/* ============================ 6. SOUND ============================ */
+/* Everything here is synthesised — no audio files. The ambience is a handful of
+   layers whose gains and frequencies follow the plant, and the music is a slow
+   generative pad that darkens when the alarms light up. */
+const SET={master:0.7,music:0.45,amb:0.6,sfx:0.8,mute:false,shake:true,scan:true,flash:true};
+function loadSettings(){
+  try{ const s=JSON.parse(localStorage.getItem('neuclify.settings')||'null');
+    if(s&&typeof s==='object') for(const k in SET) if(k in s) SET[k]=s[k];
+  }catch(e){}
+}
+function saveSettings(){ try{ localStorage.setItem('neuclify.settings',JSON.stringify(SET)) }catch(e){} }
+
+const AU={ctx:null,ok:false,layers:{},chordT:0,chord:0,clickT:0,klaxT:0};
+let DANGER=false;
+
+function audioStart(){
+  if(AU.ctx){ if(AU.ctx.state==='suspended') AU.ctx.resume().catch(()=>{}); return }
+  try{
+    const C=window.AudioContext||window.webkitAudioContext; if(!C) return;
+    const ctx=new C(); AU.ctx=ctx;
+    AU.master=ctx.createGain(); AU.master.connect(ctx.destination);
+    AU.busAmb=ctx.createGain(); AU.busAmb.connect(AU.master);
+    AU.busMus=ctx.createGain(); AU.busMus.connect(AU.master);
+    AU.busSfx=ctx.createGain(); AU.busSfx.connect(AU.master);
+    const len=Math.floor(ctx.sampleRate*2), buf=ctx.createBuffer(1,len,ctx.sampleRate), d=buf.getChannelData(0);
+    let last=0;
+    for(let i=0;i<len;i++){ const w=Math.random()*2-1; last=(last+w*0.1)*0.96; d[i]=w*0.6+last }
+    AU.noise=buf;
+    AU.layers.rumble=noiseLayer('lowpass',110,1);
+    AU.layers.steam =noiseLayer('highpass',2400,0.7);
+    AU.layers.wind  =noiseLayer('bandpass',440,0.8);
+    AU.layers.hum   =oscLayer('sawtooth',54,'lowpass',240);
+    AU.layers.mains =oscLayer('sine',100,null,0);
+    AU.layers.whine =oscLayer('triangle',420,'lowpass',2800);
+    AU.ok=true; applyAudio();
+  }catch(e){ AU.ok=false }
+}
+function noiseLayer(type,freq,q){
+  const ctx=AU.ctx, src=ctx.createBufferSource();
+  src.buffer=AU.noise; src.loop=true;
+  const f=ctx.createBiquadFilter(); f.type=type; f.frequency.value=freq; f.Q.value=q;
+  const g=ctx.createGain(); g.gain.value=0;
+  src.connect(f); f.connect(g); g.connect(AU.busAmb);
+  try{src.start()}catch(e){}
+  return {g,f};
+}
+function oscLayer(type,freq,ftype,ffreq){
+  const ctx=AU.ctx, o=ctx.createOscillator();
+  o.type=type; o.frequency.value=freq;
+  let node=o, f=null;
+  if(ftype){ f=ctx.createBiquadFilter(); f.type=ftype; f.frequency.value=ffreq; o.connect(f); node=f }
+  const g=ctx.createGain(); g.gain.value=0;
+  node.connect(g); g.connect(AU.busAmb);
+  try{o.start()}catch(e){}
+  return {g,o,f};
+}
+function applyAudio(){
+  if(!AU.ok) return;
+  const m=SET.mute?0:SET.master;
+  AU.master.gain.value=m;
+  AU.busAmb.gain.value=SET.amb;
+  AU.busMus.gain.value=SET.music;
+  AU.busSfx.gain.value=SET.sfx;
+}
+/* one-shot voices ------------------------------------------------------ */
+function tone(freq,len,type,vol,bus){
+  if(!AU.ok) return;
+  try{
+    const ctx=AU.ctx, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type||'square'; o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002,vol||0.06),ctx.currentTime+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+len);
+    o.connect(g); g.connect(bus||AU.busSfx);
+    o.start(); o.stop(ctx.currentTime+len+0.05);
+  }catch(e){}
+}
+function noiseBurst(freq,len,vol){
+  if(!AU.ok) return;
+  try{
+    const ctx=AU.ctx, s=ctx.createBufferSource(); s.buffer=AU.noise;
+    const f=ctx.createBiquadFilter(); f.type='bandpass'; f.frequency.value=freq; f.Q.value=6;
+    const g=ctx.createGain();
+    g.gain.setValueAtTime(vol||0.05,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+len);
+    s.connect(f); f.connect(g); g.connect(AU.busSfx);
+    s.start(); s.stop(ctx.currentTime+len+0.05);
+  }catch(e){}
+}
+function beep(freq,len){ tone(freq,len||0.1,'square',0.07) }
+function padNote(freq,len,vol,type){
+  if(!AU.ok) return;
+  try{
+    const ctx=AU.ctx, o=ctx.createOscillator(), g=ctx.createGain(), f=ctx.createBiquadFilter();
+    o.type=type||'triangle'; o.frequency.value=freq;
+    o.detune.value=rnd(-7,7);
+    f.type='lowpass'; f.frequency.value=900;
+    g.gain.setValueAtTime(0.0001,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(Math.max(0.0002,vol),ctx.currentTime+len*0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+len);
+    o.connect(f); f.connect(g); g.connect(AU.busMus);
+    o.start(); o.stop(ctx.currentTime+len+0.1);
+  }catch(e){}
+}
+function pluck(freq){
+  if(!AU.ok) return;
+  try{
+    const ctx=AU.ctx, o=ctx.createOscillator(), g=ctx.createGain();
+    o.type='triangle'; o.frequency.value=freq;
+    g.gain.setValueAtTime(0.0001,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.05,ctx.currentTime+0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+1.6);
+    o.connect(g); g.connect(AU.busMus);
+    o.start(); o.stop(ctx.currentTime+1.7);
+  }catch(e){}
+}
+/* generative score ----------------------------------------------------- */
+const PENT=[0,3,5,7,10];
+const PROG=[[0,3,7],[-4,0,3],[-2,2,5],[-5,-1,2]];
+const PROG_DARK=[[0,3,6],[-1,2,6],[0,1,7],[-3,0,6]];
+function musicTick(dt){
+  if(!AU.ok||SET.music<=0||SET.mute) return;
+  AU.chordT-=dt;
+  if(AU.chordT>0) return;
+  const dark=DANGER&&S&&!S.over;
+  AU.chordT=dark?4.6:8.5;
+  const prog=dark?PROG_DARK:PROG;
+  const ch=prog[AU.chord%prog.length]; AU.chord++;
+  const root=dark?103.8:110;
+  ch.forEach((semi,i)=>padNote(root*Math.pow(2,semi/12),AU.chordT*1.3,0.045-i*0.009));
+  padNote(root*Math.pow(2,(ch[0]-12)/12),AU.chordT*1.15,0.06,'sine');
+  if(Math.random()<(dark?0.5:0.7)){
+    const n=PENT[ri(0,PENT.length-1)]+(Math.random()<0.4?12:0);
+    setTimeout(()=>pluck(root*2*Math.pow(2,n/12)),ri(150,2400));
+  }
+}
+/* ambience ------------------------------------------------------------- */
+function audioTick(dt){
+  if(!AU.ok) return;
+  musicTick(dt);
+  if(!S){ for(const k in AU.layers) AU.layers[k].g.gain.value*=0.9; return }
+  const L=AU.layers, r=S.r;
+  const heat=clamp((r.temp-100)/950,0,1);
+  const flux=clamp(r.flux/100,0,1.6);
+  const spin=clamp(S.out.gross/Math.max(0.001,turbCap()),0,1);
+  const quiet=(S.paused||ovOpen)?0.25:1;
+  const v=S.view;
+  const t={rumble:0,steam:0,wind:0,hum:0,mains:0,whine:0};
+  if(v==='ctrl'){ t.hum=0.09+0.09*heat; t.mains=0.05; t.rumble=0.05+0.09*flux; t.whine=0.012*spin }
+  else if(v==='core'){ t.rumble=0.13+0.2*flux; t.steam=0.04+0.13*heat; t.hum=0.07 }
+  else if(v==='turb'){ t.whine=0.04+0.15*spin; t.steam=0.05+0.09*spin; t.mains=0.06; t.rumble=0.04 }
+  else if(v==='grid'){ t.wind=0.1; t.mains=0.04+0.04*clamp(S.out.served/Math.max(0.001,S.out.demand),0,1) }
+  else if(v==='logi'){ t.wind=0.12; t.rumble=0.03 }
+  else { t.hum=0.04; t.wind=0.03 }
+  if(S.over) { t.rumble=0.2; t.steam=0.14; t.hum=0; t.whine=0; t.mains=0 }
+  try{
+    L.whine.o.frequency.value=300+700*spin;
+    L.hum.o.frequency.value=52+12*heat;
+    L.rumble.f.frequency.value=85+80*flux;
+    L.wind.f.frequency.value=380+90*Math.sin(S.t*0.21);
+  }catch(e){}
+  const k=clamp(dt*2.2,0,1);
+  for(const key in t) L[key].g.gain.value=lerp(L[key].g.gain.value,t[key]*quiet,k);
+  // incidental one-shots
+  AU.clickT-=dt;
+  if(AU.clickT<=0){
+    AU.clickT=0.04+Math.random()*0.5;
+    if(!S.paused&&!ovOpen){
+      if(v==='core'&&flux>0.02&&Math.random()<clamp(flux*0.8,0,0.9)) noiseBurst(2600+Math.random()*2600,0.03,0.025);
+      else if(v==='ctrl'&&Math.random()<0.05) noiseBurst(1100,0.04,0.02);
+      else if(v==='logi'&&Math.random()<0.025) tone(680,0.09,'square',0.03);
+      else if(v==='turb'&&Math.random()<0.03) noiseBurst(300,0.12,0.02);
+    }
+  }
+  // alarm klaxon
+  AU.klaxT-=dt;
+  if(DANGER&&!S.over&&!S.paused&&!ovOpen&&AU.klaxT<=0){
+    AU.klaxT=1.9;
+    tone(466,0.34,'square',0.05);
+    setTimeout(()=>tone(349,0.34,'square',0.05),370);
+  }
+}
+
+/* ============================ 7. SHELL ============================ */
+
+/* --- history for the CRT traces --- */
+function histInit(){ S.hist={flux:[],temp:[],press:[],out:[],dem:[]} }
+let histT=0;
+function histPush(dt){
+  histT+=dt; if(histT<0.28) return; histT=0;
+  const h=S.hist, keep=100;
+  h.flux.push(S.r.flux); h.temp.push(S.r.temp); h.press.push(S.r.press);
+  // sent out, not sold: so a surplus shows above the demand line instead of hiding on it
+  h.out.push((S.out.deliv||0)+(S.out.bk||0)); h.dem.push(S.out.demand);
+  for(const k in h) if(h[k].length>keep) h[k].shift();
+}
+
+/* --- overlays --- */
+const ov=$('ov'), ovcard=$('ovcard');
+let ovOpen=false;
+function closeOv(){ ov.classList.remove('show'); ovOpen=false; }
+/* the screen the manual should return you to; null means the live panel */
+let ovHome=null;
+/* leaving an overlay must never drop you into a game you cannot play */
+function backFromOverlay(){
+  if(ovHome){ ovHome(); return }         // title screen, or the results of a finished shift
+  if(!S){ showTitle(); return }
+  closeOv(); S.paused=false; drawHud();
+}
+function openOv(html){ ovcard.innerHTML=html; ov.classList.add('show'); ovOpen=true; }
+ovcard.addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  audioStart();
+  if(b.dataset.t){ toggleSetting(b.dataset.t); return }
+  const a=b.dataset.o;
+  if(a==='settings'){ showSettings(); return }
+  if(a==='new'){ closeOv(); startNew() }
+  else if(a==='cont'){ closeOv(); loadGame() }
+  else if(a==='help') showHelp();
+  else if(a==='close') backFromOverlay();
+  else if(a==='keep'){ closeOv(); S.paused=false }
+  else if(a==='title') showTitle();
+});
+
+function showTitle(){
+  ovHome=showTitle;
+  const has=hasSave();
+  openOv('<h1>NEUCLIFY</h1>'+
+   '<div class="sub">A NUCLEAR POWER TYCOON</div>'+
+   '<p>One reactor, one house, one meter spinning in a suburban hallway. From there you build out: a street, a village, a town, a city, a continent — until the whole world draws its current from your switchyard.</p>'+
+   '<p>You are the shift supervisor, the chief engineer and the accountant. Pull the control rods to raise reactivity, run the coolant loops hard enough to carry the heat away, and sell the megawatts.</p>'+
+   '<p>You are also the one who hires. Every worker on site has a name, a trade and a wage, and nothing happens without them: the panel goes unwatched, the repair board gathers dust, and the trucks sit at the gate with your fuel still on them.</p>'+
+   '<p>Money comes slowly. Expect to run the plant for a long while before the next town is worth wiring up.</p>'+
+   '<p style="color:var(--amber)">Let the core melt down and the game is over. There is no second plant.</p>'+
+   '<div class="acts"><button class="b-go" data-o="new">START A NEW SHIFT</button>'+
+   (has?'<button data-o="cont">CONTINUE</button>':'')+
+   '<button data-o="help">MANUAL</button><button data-o="settings">SETTINGS</button></div>');
+}
+function showSettings(){
+  const sl=(id,label,val,hint)=>
+    '<div class="setrow"><label for="'+id+'">'+label+'</label>'+
+    '<input type="range" id="'+id+'" min="0" max="100" value="'+Math.round(val*100)+'">'+
+    '<b id="V'+id+'">'+Math.round(val*100)+'</b></div>'+
+    (hint?'<div class="hint" style="margin:-2px 0 8px">'+hint+'</div>':'');
+  const tg=(id,label,on,hint)=>
+    '<div class="setrow"><label for="'+id+'">'+label+'</label>'+
+    '<button class="'+(on?'b-go':'')+'" id="'+id+'" data-t="'+id+'">'+(on?'ON':'OFF')+'</button></div>'+
+    (hint?'<div class="hint" style="margin:-2px 0 8px">'+hint+'</div>':'');
+  openOv('<h1>SETTINGS</h1>'+
+    '<div class="sub">SOUND AND SCREEN</div>'+
+    '<h2>SOUND</h2>'+
+    tg('setMute','Sound',!SET.mute,'Everything you hear is generated by the game as it runs — there are no audio files.')+
+    sl('setMaster','Master volume',SET.master)+
+    sl('setMusic','Music',SET.music,'A slow generative score that darkens while the alarms are lit.')+
+    sl('setAmb','Plant ambience',SET.amb,'Reactor hum, steam, turbine whine, the yard in the wind.')+
+    sl('setSfx','Alarms and effects',SET.sfx)+
+    '<h2>SCREEN</h2>'+
+    tg('setScan','Scanlines',SET.scan)+
+    tg('setShake','Screen shake',SET.shake,'The viewport shakes during quakes and containment damage.')+
+    tg('setFlash','Alarm flash',SET.flash,'A red wash over the viewport when something goes badly wrong.')+
+    '<div class="acts"><button class="b-go" data-o="close">BACK</button>'+
+    '<button data-o="help">MANUAL</button></div>');
+  const bind=(id,key)=>{
+    const e=$(id); if(!e) return;
+    e.addEventListener('input',()=>{ SET[key]=(+e.value)/100; $('V'+id).textContent=e.value; applyAudio(); saveSettings() });
+  };
+  bind('setMaster','master'); bind('setMusic','music'); bind('setAmb','amb'); bind('setSfx','sfx');
+}
+function toggleSetting(id){
+  if(id==='setMute'){ SET.mute=!SET.mute; if(!SET.mute) audioStart(); applyAudio() }
+  else if(id==='setScan'){ SET.scan=!SET.scan; $('scan').hidden=!SET.scan }
+  else if(id==='setShake') SET.shake=!SET.shake;
+  else if(id==='setFlash'){ SET.flash=!SET.flash; if(!SET.flash) $('flash').style.opacity=0 }
+  saveSettings(); showSettings();
+}
+function applyVisualSettings(){
+  $('scan').hidden=!SET.scan;
+  if(!SET.flash) $('flash').style.opacity=0;
+}
+function showHelp(){
+  openOv('<h1>OPERATOR MANUAL</h1>'+
+   '<h2>COLD START</h2>'+
+   '<p>A new plant is handed over completely cold: rods fully inserted, coolant pumps stopped, the turbine off the bars and both of your workers off shift. Nothing is counted against you until you first put power on the house, so there is no hurry.</p>'+
+   '<p>Work down the checklist on the control panel. Give a worker panel duty in the Supply yard, open a coolant pump, withdraw the rods below 70%, let the core go critical, then start a turbine. The moment the house is lit you are synchronised, the grace period ends, and the network starts keeping score.</p>'+
+   '<p>Order matters. Pumps before rods — a core with no flow and the rods out will run away from you, and the protection system will drop them again before you get anywhere.</p>'+
+   '<h2>THE LOOP THAT MATTERS</h2>'+
+   '<p><b>The rods set the power. The pumps set the temperature.</b> Withdraw the rods and neutron flux climbs until the fuel heats up enough to cancel the reactivity you added, so each rod position settles at its own power level. That heat has to go somewhere: the coolant loops carry it out, and the hotter the core runs the more they carry. Open the pumps and the core cools; throttle them and it heats.</p>'+
+   '<p>Watch the cooling margin on the panel. While removal exceeds thermal power the core is steady. Let thermal power pass what the loops can carry and temperature runs away — containment starts taking damage above 1000&deg;C, and at 2100&deg;C you have a meltdown and the game is over.</p>'+
+   '<h2>FOUR CEILINGS</h2>'+
+   '<p>Core thermal power, heat removal, turbine capacity and line capacity. The smallest one is your real output. Engineering tells you which is the bottleneck.</p>'+
+   '<h2>DECAY HEAT</h2>'+
+   '<p>Shutting down does not stop the heat. Fission products keep the core at roughly 7% of its recent power for a long while afterwards, so the pumps have to keep turning after a scram. Natural circulation alone carries about 4% — enough for an idling core, not for one you just shut down from full load.</p>'+
+   '<h2>XENON</h2>'+
+   '<p>Running at power breeds iodine, which decays into xenon — a neutron poison. Scram the reactor and the xenon spikes for a few hours, so a restart needs the rods much further out than usual. Plan shutdowns.</p>'+
+   '<h2>THE CREW</h2>'+
+   '<p>Workers are individuals. Each one has a name, a trait, an asking wage and three ratings: <b>reactor</b>, <b>mechanical</b> and <b>yard</b>. Put them on a duty and only that rating counts.</p>'+
+   '<p><b>Control room</b> staff keep incidents rare and catch mistakes. <b>Maintenance</b> staff are the only way anything on the repair board ever gets fixed. <b>Yard</b> staff unload the trucks — without them a delivery sits at the gate and your stores stay empty while demurrage ticks up. <b>Off shift</b> costs half pay and sheds fatigue.</p>'+
+   '<p>A tired, hungry worker is worth a fraction of their rating, and one who stays miserable will walk off site for good. Feed them, rotate them, and keep an eye on the board at the gate — someone is always looking for work.</p>'+
+   '<h2>SUPPLY</h2>'+
+   '<p>Fuel assemblies burn up and must be replaced with the core near shutdown. Makeup water replaces what boils off and leaks away. Parts kits pay for repairs. Canteen crates feed the crew, one each per day. Everything arrives by truck hours after you order it, and then has to be carried into the store by hand.</p>'+
+   '<h2>KEYS</h2>'+
+   '<div class="keys"><b>1-6</b><span>Switch view</span><b>SPACE</b><span>Pause</span>'+
+   '<b>S</b><span>Scram the reactor</span><b>UP / DOWN</b><span>Rods out / in</span>'+
+   '<b>, / .</b><span>Slower / faster</span><b>M</b><span>Mute</span><b>O</b><span>Settings</span>'+
+   '<b>H</b><span>This manual</span></div>'+
+   '<div class="acts"><button class="b-go" data-o="close">'+
+   (!S?'BACK TO THE TITLE':(S.over?'BACK TO THE RESULTS':'BACK TO THE PANEL'))+'</button>'+
+   '<button data-o="settings">SETTINGS</button>'+
+   ((S&&S.over)?'<button data-o="new">NEW SHIFT</button>':'')+'</div>');
+}
+function finalStats(){
+  return '<div class="final">'+
+   '<div><i>DAYS RUN</i><b>'+S.day+'</b></div>'+
+   '<div><i>LIFETIME REVENUE</i><b>'+money(S.st.earned)+'</b></div>'+
+   '<div><i>ENERGY DELIVERED</i><b>'+num(S.st.mwh)+' MWh</b></div>'+
+   '<div><i>PEAK OUTPUT</i><b>'+mw(S.st.peak)+'</b></div>'+
+   '<div><i>CUSTOMERS</i><b>'+tiersOn()+'/10</b></div>'+
+   '<div><i>HOTTEST CORE</i><b>'+num(S.st.maxTemp)+' &deg;C</b></div>'+
+   '<div><i>INCIDENTS</i><b>'+S.st.events+'</b></div>'+
+   '<div><i>SCRAMS</i><b>'+S.st.scrams+'</b></div></div>';
+}
+function showEnd(){
+  ovHome=showEnd;
+  clearSave();
+  if(S.over==='meltdown')
+    openOv('<h1 class="bad">CORE MELTDOWN</h1>'+
+     '<div class="sub">GAME OVER</div>'+
+     '<p>Containment failed at '+num(S.st.maxTemp)+'&deg;C on day '+S.day+'. The fuel is on the floor of the vessel, the exclusion zone is thirty kilometres across, and '+
+     (tiersOn()>1?TIERS.filter((t,i)=>S.grid.on[i]).slice(-1)[0].name+' is dark.':'your house is dark.')+'</p>'+
+     '<p class="muted">Cooling margin is the only number that was ever going to kill you. Keep heat removal above thermal power, and scram early — a few poisoned hours beats a melted core.</p>'+
+     finalStats()+
+     '<div class="acts"><button class="b-go" data-o="new">NEW SHIFT</button><button data-o="help">MANUAL</button></div>');
+  else
+    openOv('<h1 class="bad">BANKRUPT</h1>'+
+     '<div class="sub">GAME OVER</div>'+
+     '<p>The receivers arrived on day '+S.day+'. Wages, maintenance and fuel outran the meter.</p>'+
+     '<p class="muted">Sell power before you expand: every tier of customers you connect raises both the income and the penalty for falling short.</p>'+
+     finalStats()+
+     '<div class="acts"><button class="b-go" data-o="new">NEW SHIFT</button></div>');
+}
+function showWin(){
+  S.paused=true;
+  openOv('<h1>THE WORLD IS ON YOUR GRID</h1>'+
+   '<div class="sub">NEUCLIFY COMPLETE</div>'+
+   '<p>Seventy-two hours of stable supply at full planetary load. Every meter on Earth, from the house you started in to the last foundry on the far continent, is turning on your steam.</p>'+
+   '<p>The plant is still yours. Keep running it, push the output higher, or just sit with the hum for a while.</p>'+
+   finalStats()+
+   '<div class="acts"><button class="b-go" data-o="keep">KEEP RUNNING THE PLANT</button></div>');
+}
+
+/* --- save / load --- */
+const SKEY='neuclify.save.v3';
+function saveGame(){
+  if(!S||S.over) return;
+  try{ localStorage.setItem(SKEY,JSON.stringify({S:S,v:1})) }catch(e){}
+}
+function hasSave(){ try{ return !!localStorage.getItem(SKEY) }catch(e){ return false } }
+function clearSave(){ try{ localStorage.removeItem(SKEY) }catch(e){} }
+function loadGame(){
+  let d=null;
+  try{ d=JSON.parse(localStorage.getItem(SKEY)) }catch(e){}
+  if(!d||!d.S){ startNew(); return }
+  S=d.S;
+  S.jobs=[];                                   // closures do not survive storage
+  S.ev.active=(S.ev.active||[]).filter(e=>e.id!=='heat'&&e.id!=='flood');
+  S.r.inlet=34; S.over=null; S.paused=false;
+  if(typeof S.r.decay!=='number') S.r.decay=0;
+  if(typeof S.startup!=='boolean') S.startup=false;
+  if(!S.dock) S.dock=[];
+  // rod automation was withdrawn: refund anyone who bought it
+  if(S.up.auto>0){ const c=[0,8000,150000]; let back=0; for(let k=1;k<=S.up.auto;k++) back+=(c[k]||0)*COSTX;
+    S.money+=back; logMsg('Rod automation has been withdrawn. '+money(back)+' refunded.','info'); }
+  delete S.up.auto; delete S.autoTemp;
+  if(!S.grid.fd) S.grid.fd=S.grid.on.map(on=>on?'main':'off');
+  if(!S.crew||!S.crew.workers){ S.crew={workers:[],pool:[],poolT:0,strike:0}; refreshPool(); }
+  if(!S.crew.pool||!S.crew.pool.length) refreshPool();
+  for(const w of S.crew.workers) WID=Math.max(WID,w.id);
+  if(!S.hist) histInit();
+  if(!S.out) S.out={gross:0,net:0,deliv:0,demand:0,served:0,thermal:0,cool:0,cap:0,parasite:0,spill:0,income:0,spend:0};
+  boot();
+  logMsg('Shift resumed on day '+S.day+'.','info');
+}
+function startNew(){ newGame(); histInit(); boot(); }
+function boot(){
+  ovHome=null; tickQueue=[];
+  buildTabs(); setView(S.view||'ctrl'); drawHud();
+  $('bSpeed').textContent=S.speed+'x';
+  $('bPause').textContent=S.paused?'>':'II';
+}
+
+/* --- hud buttons --- */
+$('bSpeed').addEventListener('click',()=>{
+  const order=[1,2,4,8]; S.speed=order[(order.indexOf(S.speed)+1)%order.length];
+  $('bSpeed').textContent=S.speed+'x';
+});
+$('bPause').addEventListener('click',()=>{ S.paused=!S.paused; $('bPause').textContent=S.paused?'>':'II' });
+$('bHelp').addEventListener('click',()=>{ if(S) S.paused=true; showHelp() });
+$('bSet').addEventListener('click',()=>{ if(S) S.paused=true; showSettings() });
+/* the browser will not let any of this make a sound until the player touches the page */
+addEventListener('pointerdown',audioStart,{once:false});
+addEventListener('keydown',audioStart,{once:false});
+
+/* --- keyboard --- */
+addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT') return;
+  const k=e.key.toLowerCase();
+  if(ovOpen){ if(k==='escape') backFromOverlay(); return }
+  if(!S) return;
+  const vi=['1','2','3','4','5','6'].indexOf(e.key);
+  if(vi>=0){ setView(VIEWS[vi].id); e.preventDefault(); return }
+  if(k===' '){ S.paused=!S.paused; $('bPause').textContent=S.paused?'>':'II'; e.preventDefault() }
+  else if(k==='s') scram();
+  else if(k==='h'){ S.paused=true; showHelp() }
+  else if(k==='o'){ S.paused=true; showSettings() }
+  else if(k==='m'){ SET.mute=!SET.mute; if(!SET.mute) audioStart(); applyAudio(); saveSettings();
+    logMsg('Sound '+(SET.mute?'muted.':'on.'),'info') }
+  else if(k==='arrowup'||k==='arrowdown'){
+    if(S.r.jam<=0&&S.r.scramT<=0){ S.r.rods=clamp(S.r.rods+(k==='arrowup'?-2:2),0,100); setSliders() }
+    e.preventDefault();
+  }
+  else if(k===','||k==='<'){ S.speed=Math.max(1,S.speed/2); $('bSpeed').textContent=S.speed+'x' }
+  else if(k==='.'||k==='>'){ S.speed=Math.min(8,S.speed*2); $('bSpeed').textContent=S.speed+'x' }
+});
+addEventListener('visibilitychange',()=>{ if(document.hidden&&S&&!S.over) saveGame() });
+
+/* --- main loop --- */
+let prev=performance.now(), hudT=0, panelT=0, saveT=0;
+function frame(now){
+  const dt=Math.min(0.1,(now-prev)/1000); prev=now;
+  if(S){
+    if(!S.paused&&!ovOpen&&!S.over){
+      const total=dt*S.speed;
+      const n=Math.min(24,Math.max(1,Math.ceil(total/0.05)));
+      for(let i=0;i<n;i++) step(dt/n);
+      histPush(dt*S.speed);
+    }
+    render(dt);
+    hudT+=dt; if(hudT>0.12){ hudT=0; drawHud() }
+    panelT+=dt; if(panelT>0.14){ panelT=0; if(PANEL.up){ try{PANEL.up()}catch(e){} } }
+    saveT+=dt; if(saveT>20){ saveT=0; saveGame() }
+  }
+  audioTick(dt);
+  requestAnimationFrame(frame);
+}
+
+/* --- live-update support: keep the shift running across a republish --- */
+loadSettings(); applyVisualSettings();
+/* keep the canvas the shape of the stage so scenes fill it instead of letterboxing */
+fitCanvas();
+try{ if(window.ResizeObserver) new ResizeObserver(fitCanvas).observe($('canwrap')); }catch(e){}
+addEventListener('resize',fitCanvas);
+try{
+  const hot=window.claude&&window.claude.hot;
+  if(hot&&hot.snapshot) hot.snapshot(()=>({save:S?JSON.stringify(S):null}));
+  const start=data=>{
+    if(data&&data.save){
+      try{ S=JSON.parse(data.save); S.jobs=[]; if(!S.hist) histInit(); boot(); }
+      catch(e){ showTitle() }
+    } else showTitle();
+    requestAnimationFrame(frame);
+  };
+  if(hot&&hot.ready) hot.ready(start); else start(hot&&hot.data);
+}catch(e){ showTitle(); requestAnimationFrame(frame) }
+
+})();
+</script>
+
+
